@@ -1,0 +1,18 @@
+import express from "express";
+import helmet from "helmet";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+import rateLimit from "express-rate-limit";
+import mongoose from "mongoose";
+const app = express();
+const allowed = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+app.disable("x-powered-by"); app.set("trust proxy", 1); app.use(helmet());
+app.use(cors({ origin: (origin, cb) => !origin || origin === allowed ? cb(null, true) : cb(new Error("Origin not allowed")), credentials: true }));
+app.use((req, res, next) => { const safe = ["GET","HEAD","OPTIONS"].includes(req.method); const origin = req.get("origin"); if (!safe && origin && origin !== allowed) return res.status(403).json({ error: { code: "ORIGIN_NOT_ALLOWED", message: "This request origin is not allowed." } }); next(); });
+app.use(express.json({ limit: "1mb", strict: true })); app.use(cookieParser());
+app.use("/api/auth", rateLimit({ windowMs: 900000, limit: 30, standardHeaders: "draft-7", legacyHeaders: false }));
+app.get("/api/health", (_req, res) => res.status(200).json({ status: "ok", service: "codevault-api", database: mongoose.connection.readyState === 1 ? "connected" : "disconnected", timestamp: new Date().toISOString() }));
+app.use("/api", (req, res, next) => { if (req.path === "/health") return next(); if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: { code: "DATABASE_UNAVAILABLE", message: "Database is not connected. Configure MONGODB_URI and retry." } }); next(); });
+app.use((_req, res) => res.status(404).json({ error: { code: "NOT_FOUND", message: "The requested endpoint does not exist." } }));
+app.use((err, _req, res, _next) => { const status = Number(err.statusCode || err.status || 500); if (status >= 500) console.error("Request failed:", err.message); res.status(status).json({ error: { code: err.code || "INTERNAL_ERROR", message: status >= 500 && status !== 503 ? "The server could not complete this request." : err.message } }); });
+export default app;

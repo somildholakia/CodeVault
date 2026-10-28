@@ -1,0 +1,10 @@
+import "dotenv/config";
+import mongoose from "mongoose";
+import app from "./app.js";
+const port = Number(process.env.PORT || 4000);
+mongoose.set("bufferCommands", false);
+if (process.env.MONGODB_URI) mongoose.connect(process.env.MONGODB_URI).then(() => console.info("Database connected.")).catch((e) => console.error("Database connection failed:", e.message));
+else console.warn("MONGODB_URI is not configured.");
+const server = app.listen(port, "0.0.0.0", () => console.info("CodeVault API listening on " + port));
+const stop = () => server.close(() => mongoose.disconnect().finally(() => process.exit(0)));
+process.on("SIGTERM", stop); process.on("SIGINT", stop);

@@ -24,3 +24,36 @@
 .issue-line{display:flex;align-items:center;gap:9px;min-height:43px;padding:9px 0;border-bottom:1px solid #f0ede5;font-size:10px}.issue-line>svg{color:#74852f}.issue-line>span{color:#999a8e;font-size:9px}.issue-line>b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-head{min-height:39px;border-bottom:1px solid #f0ede5;display:flex;align-items:center;gap:7px;padding:0 10px;font-size:9.5px;color:#77796d;overflow:hidden}.file-head .badge{margin-left:auto}.file-content{display:flex;flex-direction:column;min-width:0}.file-content pre{margin:0;flex:1;min-height:250px;max-height:460px;overflow:auto;padding:12px;background:#fcfbf7;font:10px/1.8 ui-monospace,monospace;white-space:pre;color:#42443a}.file-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;min-height:220px;padding:15px;text-align:center;color:#999a8e}.file-placeholder b{font-size:10px;margin:10px 0 5px;color:#5e6055}.file-placeholder p{font-size:9px}.inline{display:inline-flex;align-items:center;gap:5px;color:#68782f;background:none;border:0;padding:3px 0;font-size:10px;font-weight:800;white-space:nowrap}
 @media(max-width:760px){.dash-grid{grid-template-columns:1fr}.dash-side{display:grid;grid-template-columns:1fr}.repo-heading{align-items:flex-start;flex-wrap:wrap}.repo-heading>div{min-width:180px}.auth-mobile-brand{display:flex}.auth-art .brand{height:auto}.graph-art{max-width:310px}}
+
+/* Interactive repository workflows */
+.file-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px}
+.file-head{display:flex;align-items:center;gap:7px;min-height:39px;padding:0 10px;border-bottom:1px solid #f0ede5;color:#77796d;font-size:9.5px}
+.file-head .badge{margin-left:auto}
+.file-view{display:flex;flex-direction:column;min-width:0}
+.file-view pre{margin:0;flex:1;min-height:235px;max-height:480px;overflow:auto;padding:12px;background:#fcfbf7;color:#42443a;font:10px/1.8 ui-monospace,monospace;white-space:pre}
+.file-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:220px;padding:16px;text-align:center;color:#999a8e}
+.file-placeholder b{font-size:10px;margin:10px 0 5px;color:#5e6055}.file-placeholder p{font-size:9px;line-height:1.5}
+.file-editor{padding:12px}.file-editor textarea{font:10px/1.75 ui-monospace,monospace;min-height:250px}
+.file-actions,.edit-actions,.diff-meta{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:10px;border-top:1px solid var(--line)}
+.diff-meta{justify-content:flex-start;color:var(--muted);font-size:9px}.diff-meta code{font:9px ui-monospace,monospace}.diff-meta .text-link{margin-left:auto}
+.diff-view{max-height:560px;overflow:auto;white-space:pre;background:#fcfbf7;padding:13px;margin:0;color:#36382f;font:10px/1.7 ui-monospace,monospace}
+.commit.clickable{display:flex;width:100%;text-align:left;background:transparent;border:0;font:inherit;cursor:pointer}.commit.clickable:hover{background:#f8f7f0}
+.branch-select{display:flex;align-items:center;position:relative;gap:7px;padding:0 9px;height:31px;border:1px solid var(--line);border-radius:7px;background:var(--surface);font-size:10px;color:#75776b}
+.branch-select select{appearance:none;max-width:160px;padding-right:18px;background:transparent;border:0;outline:none;color:var(--ink);font-size:10px}
+.branch-select>svg:last-child{position:absolute;right:6px;pointer-events:none}
+.merge-form{display:grid;grid-template-columns:1fr 1fr auto;align-items:end;gap:10px}
+.merge-result{padding:13px;margin-top:14px;border-radius:9px;border:1px solid var(--line);background:#f8f7f0}
+.merge-result.ok{background:#f1f5e2;border-color:#dfe8bd}.merge-result.conflict{background:#fff1eb;border-color:#f0d1c5}
+.merge-result>b{font-size:11px}.merge-result>p{font-size:9.5px;color:#85867b;line-height:1.6;margin:6px 0 10px}
+.merge-files{display:flex;flex-direction:column;gap:5px;margin:8px 0 12px;font:9px ui-monospace,monospace;color:#696b60}
+.issue-card{border-bottom:1px solid #f0ede5}.issue-card .issue-line{border-bottom:0;flex-wrap:wrap}
+.issue-detail{margin:0 0 12px 25px;padding:12px;background:#f8f7f0;border:1px solid #eeeadf;border-radius:8px}
+.issue-detail>p{font-size:10px;color:#77796d;line-height:1.6;white-space:pre-wrap}
+.comment-row{display:flex;flex-direction:column;gap:4px;padding:9px 0;border-top:1px solid #eae7dd}
+.comment-row>b{font-size:9px}.comment-row>span{font-size:10px;line-height:1.55;white-space:pre-wrap}.comment-row>small{font-size:8px;color:#96978b}
+.comment-form{display:flex;gap:8px;margin-top:10px}.comment-form input{flex:1;min-width:0;padding:8px 9px;border:1px solid var(--line2);border-radius:7px;background:#fffefa;font-size:10px}
+.collab-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #f0ede5}
+.collab-row:last-child{border-bottom:0}.collab-row>div{display:flex;flex-direction:column;gap:4px}.collab-row b{font-size:10.5px}.collab-row small{font-size:9px;color:#999a8e}
+.collab-row .avatar{width:30px;height:30px}.collab-row.owner .avatar{background:#e9f3c6;color:#42472c}
+.repo-title .repo-icon{flex-shrink:0}
+@media(max-width:760px){.merge-form{grid-template-columns:1fr}.comment-form{flex-direction:column}.file-toolbar{align-items:flex-start;flex-wrap:wrap}.issue-detail{margin-left:0}}

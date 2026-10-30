@@ -8,7 +8,7 @@ import User from "../models/User.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
 const router=Router();router.use(requireAuth);
-async function load(id){if(!mongoose.isValidObjectId(id))throw notFound("Issue not found.");const issue=await Issue.findById(id).populate("repository").populate("author","username displayName avatarUrl").populate("assignee","username displayName avatarUrl");if(!issue||!issue.repository)throw notFound("Issue not found.");return issue;}
+async function load(id){if(!mongoose.isValidObjectId(id))throw notFound("Issue not found.");const issue=await Issue.findById(id).populate("repository").populate("author","username displayName avatarUrl").populate("assignee","username displayName avatarUrl").populate("comments.author","username displayName avatarUrl");if(!issue||!issue.repository)throw notFound("Issue not found.");return issue;}
 async function role(issue,uid){const repo=issue.repository;if(repo.owner.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});if(c)return c.role;if(repo.visibility==="public")return "public-viewer";throw notFound("Issue not found.");}
 async function event(uid,issue,action,summary){await Activity.create({actor:uid,repository:issue.repository._id,action,entityType:"issue",entityId:issue._id.toString(),entityName:issue.title,summary});}
 router.get("/issues/:issueId",asyncHandler(async(req,res)=>{const issue=await load(req.params.issueId);await role(issue,req.user._id);res.json({issue});}));

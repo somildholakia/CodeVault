@@ -13,9 +13,11 @@ services:
         value: production
       - key: REPO_STORAGE_PATH
         value: /var/data/codevault/repos
+      - key: REPO_STORAGE_DURABLE
+        value: "false"
       - key: JWT_SECRET
         sync: false
       - key: MONGODB_URI
         sync: false
       - key: CLIENT_ORIGIN
-        sync: false
+        value: https://codevault-somildholakias-projects.vercel.app

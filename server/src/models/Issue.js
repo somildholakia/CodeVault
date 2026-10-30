@@ -1,0 +1,5 @@
+import mongoose from "mongoose";
+const commentSchema=new mongoose.Schema({author:{type:mongoose.Schema.Types.ObjectId,ref:"User",required:true},body:{type:String,required:true,maxlength:5000},createdAt:{type:Date,default:Date.now}},{_id:true});
+const schema=new mongoose.Schema({repository:{type:mongoose.Schema.Types.ObjectId,ref:"Repository",required:true,index:true},number:{type:Number,required:true},title:{type:String,required:true,trim:true,minlength:1,maxlength:180},description:{type:String,default:"",maxlength:12000},author:{type:mongoose.Schema.Types.ObjectId,ref:"User",required:true},assignee:{type:mongoose.Schema.Types.ObjectId,ref:"User",default:null},status:{type:String,enum:["open","closed"],default:"open",index:true},priority:{type:String,enum:["low","medium","high","critical"],default:"medium"},labels:{type:[String],default:[],validate:v=>v.length<=12},comments:{type:[commentSchema],default:[]},closedAt:{type:Date,default:null}},{timestamps:true,versionKey:false});
+schema.index({repository:1,number:1},{unique:true});schema.index({repository:1,status:1,updatedAt:-1});
+export default mongoose.model("Issue",schema);

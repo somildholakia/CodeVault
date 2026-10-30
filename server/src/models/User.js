@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
 const schema=new mongoose.Schema({username:{type:String,required:true,unique:true,trim:true,lowercase:true,minlength:3,maxlength:30,match:/^[a-z0-9_-]+$/},displayName:{type:String,required:true,trim:true,maxlength:80},email:{type:String,required:true,unique:true,trim:true,lowercase:true,maxlength:254},passwordHash:{type:String,required:true,select:false},avatarUrl:{type:String,default:""},bio:{type:String,default:"",maxlength:500},skills:{type:[String],default:[],validate:v=>v.length<=40},status:{type:String,enum:["active","disabled"],default:"active"},lastLoginAt:{type:Date,default:null}},{timestamps:true,versionKey:false});
-schema.index({username:1},{unique:true});schema.index({email:1},{unique:true});
 schema.set("toJSON",{transform(_doc,ret){delete ret.passwordHash;delete ret.email;delete ret.status;return ret;}});
 export default mongoose.model("User",schema);

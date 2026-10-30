@@ -70,6 +70,7 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
  if(pr.status!=="open")throw new AppError(409,"PULL_REQUEST_CLOSED","Only open pull requests can be merged.");
  const approvals=pr.reviews.filter(r=>r.decision==="approved"&&r.user.toString()!==pr.author._id.toString());
  if(!approvals.length)throw new AppError(409,"APPROVAL_REQUIRED","At least one collaborator must approve this pull request before merging.");
+ if(pr.reviews.some(r=>r.decision==="changes_requested"))throw new AppError(409,"CHANGES_REQUESTED","A reviewer has requested changes. Resolve the feedback and update the review before merging.");
  const preview=await previewMerge(pr.repository._id,pr.sourceBranch,pr.targetBranch);
  if(!preview.canMerge)throw new AppError(409,"MERGE_CONFLICT","Resolve the branch conflicts before merging.",{conflicts:preview.conflicts,files:preview.files});
  await withRepositoryLock(pr.repository._id,()=>mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,preview.targetHead));

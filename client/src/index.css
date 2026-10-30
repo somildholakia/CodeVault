@@ -57,3 +57,17 @@
 .collab-row .avatar{width:30px;height:30px}.collab-row.owner .avatar{background:#e9f3c6;color:#42472c}
 .repo-title .repo-icon{flex-shrink:0}
 @media(max-width:760px){.merge-form{grid-template-columns:1fr}.comment-form{flex-direction:column}.file-toolbar{align-items:flex-start;flex-wrap:wrap}.issue-detail{margin-left:0}}
+
+/* Pull-request review workspace */
+.pr-create{padding:13px;margin-bottom:15px;border:1px solid var(--line);border-radius:9px;background:#faf9f3}
+.pr-row{display:flex;align-items:center;gap:10px;width:100%;padding:12px 4px;border:0;border-bottom:1px solid #f0ede5;background:transparent;text-align:left;color:var(--ink)}
+.pr-row:last-child{border-bottom:0}.pr-row>svg:first-child{color:#758a35;flex-shrink:0}
+.pr-row>span:nth-child(2){display:flex;flex:1;min-width:0;flex-direction:column;gap:5px}
+.pr-row b{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-row small{font-size:9px;color:#96978b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-row:hover{background:#f8f7f0}.pr-description{font-size:10px;line-height:1.7;color:#77796d;white-space:pre-wrap}
+.review-list{padding:12px 0;border-top:1px solid #f0ede5}.review-list>b{font-size:10px}
+.review-row{display:grid;grid-template-columns:max-content 1fr max-content;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #f0ede5}
+.review-row>b{font-size:9.5px}.review-row>small{font-size:8px;color:#999a8e}.review-row>p{grid-column:1/-1;font-size:9.5px;line-height:1.55;color:#77796d;margin:0}
+.pr-review-form{padding:12px;background:#f8f7f0;border:1px solid #eeeadf;border-radius:8px}
+.pr-actions{display:flex;flex-wrap:wrap;gap:8px;padding-top:12px;border-top:1px solid #f0ede5}

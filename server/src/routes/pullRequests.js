@@ -8,6 +8,7 @@ import Activity from "../models/Activity.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
 import {listBranches,previewMerge,mergeBranches,listCommits,withRepositoryLock} from "../services/git.js";
+import {evaluateReviewGate} from "../services/pullRequestPolicy.js";
 const router=Router();router.use(requireAuth);
 async function findRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id);if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,userId){if(repo.owner.toString()===userId.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:userId,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -68,9 +69,9 @@ router.post("/:id/close",asyncHandler(async(req,res)=>{
 router.post("/:id/merge",asyncHandler(async(req,res)=>{
  const pr=await loadPullRequest(req.params.id);assertManage(await roleFor(pr.repository,req.user._id));
  if(pr.status!=="open")throw new AppError(409,"PULL_REQUEST_CLOSED","Only open pull requests can be merged.");
- const approvals=pr.reviews.filter(r=>r.decision==="approved"&&r.user.toString()!==pr.author._id.toString());
- if(!approvals.length)throw new AppError(409,"APPROVAL_REQUIRED","At least one collaborator must approve this pull request before merging.");
- if(pr.reviews.some(r=>r.decision==="changes_requested"))throw new AppError(409,"CHANGES_REQUESTED","A reviewer has requested changes. Resolve the feedback and update the review before merging.");
+ const gate=evaluateReviewGate(pr.reviews,pr.author._id);
+ if(gate.reason==="changes_requested")throw new AppError(409,"CHANGES_REQUESTED","A reviewer has requested changes. Resolve the feedback and update the review before merging.");
+ if(!gate.allowed)throw new AppError(409,"APPROVAL_REQUIRED","At least one collaborator must approve this pull request before merging.");
  const preview=await previewMerge(pr.repository._id,pr.sourceBranch,pr.targetBranch);
  if(!preview.canMerge)throw new AppError(409,"MERGE_CONFLICT","Resolve the branch conflicts before merging.",{conflicts:preview.conflicts,files:preview.files});
  await withRepositoryLock(pr.repository._id,()=>mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,preview.targetHead));

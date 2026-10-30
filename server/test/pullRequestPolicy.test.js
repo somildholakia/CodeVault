@@ -1,0 +1,10 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {evaluateReviewGate} from "../src/services/pullRequestPolicy.js";
+const author="aaaaaaaaaaaaaaaaaaaaaaaa";
+const reviewer="bbbbbbbbbbbbbbbbbbbbbbbb";
+test("blocks a pull request with no review",()=>{assert.deepEqual(evaluateReviewGate([],author),{allowed:false,reason:"approval_required"});});
+test("does not count the author's own approval",()=>{assert.equal(evaluateReviewGate([{user:author,decision:"approved"}],author).allowed,false);});
+test("allows an independent approval",()=>{assert.deepEqual(evaluateReviewGate([{user:reviewer,decision:"approved"}],author),{allowed:true,reason:null});});
+test("blocks merge while any independent reviewer requests changes",()=>{const reviews=[{user:reviewer,decision:"approved"},{user:"cccccccccccccccccccccccc",decision:"changes_requested"}];assert.equal(evaluateReviewGate(reviews,author).reason,"changes_requested");});
+test("allows merge after the change-request review is updated to approval",()=>{const reviews=[{user:reviewer,decision:"approved"},{user:"cccccccccccccccccccccccc",decision:"approved"}];assert.equal(evaluateReviewGate(reviews,author).allowed,true);});

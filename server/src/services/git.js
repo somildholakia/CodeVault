@@ -108,3 +108,40 @@ export async function deleteTag(id, tagName) {
   const name = safeRef(tagName);
   await git(repositoryPath(id), ["tag", "-d", name]);
 }
+
+
+export async function listCommitGraph(id, ref = "all", limit = 100) {
+  const root = repositoryPath(id);
+  const revision = ref === "all" ? null : safeRef(ref);
+  const maxCount = Math.min(200, Math.max(1, Number(limit) || 100));
+  const format = "%H%x1f%P%x1f%an%x1f%aI%x1f%s";
+  const args = ["log", revision ? revision : "--all", "--topo-order", "--date-order", "--max-count=" + maxCount, "--date=iso-strict", "--format=" + format];
+  const history = await git(root, args);
+  const commits = history.stdout.split(String.fromCharCode(10)).filter(Boolean).map(row => {
+    const [sha, parents, author, date, ...messageParts] = row.split(String.fromCharCode(31));
+    return {sha, parents: parents ? parents.split(" ").filter(Boolean) : [], author, date, message: messageParts.join(String.fromCharCode(31))};
+  });
+  const [branches, tags] = await Promise.all([listBranches(id), listTags(id)]);
+  const refsBySha = {};
+  for (const item of branches) (refsBySha[item.sha] ||= []).push({name: item.name, type: "branch"});
+  for (const item of tags) (refsBySha[item.commitSha] ||= []).push({name: item.name, type: "tag"});
+  for (const commit of commits) commit.refs = refsBySha[commit.sha] || [];
+  return {ref: revision || "all", commits, branches, tags, truncated: commits.length === maxCount};
+}
+
+export async function compareCommits(id, baseRef, targetRef) {
+  const root = repositoryPath(id);
+  const base = safeRef(baseRef);
+  const target = safeRef(targetRef);
+  if (base === target) throw new AppError(400, "SAME_COMMIT", "Choose two different commits to compare.");
+  const [baseSha, targetSha] = await Promise.all([
+    git(root, ["rev-parse", "--verify", base + "^{commit}"]),
+    git(root, ["rev-parse", "--verify", target + "^{commit}"])
+  ]);
+  const baseCommit = baseSha.stdout.trim();
+  const targetCommit = targetSha.stdout.trim();
+  const result = await git(root, ["diff", "--no-ext-diff", "--stat", "--patch", "--unified=3", baseCommit, targetCommit]);
+  const output = result.stdout.slice(0, 300000);
+  const stats = output.split(String.fromCharCode(10)).filter(line => /\|\s+\d+/.test(line));
+  return {base: baseCommit, target: targetCommit, diff: output, filesChanged: stats.length};
+}

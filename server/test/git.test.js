@@ -19,14 +19,15 @@ test("detects a conflicting merge without changing the target branch",async()=>{
 
 test("searches committed text for exact literal matches on a selected ref",async()=>{
  const id=await makeRepo();
- await git.commitFile(id,"main","src/search.js",'export const tokenPattern = "TOKEN.*";\\nexport const tokenLabel = "token.*";\\n',"Add search fixture",{username:"testuser",displayName:"Test User",email:"test@codevault.local"});
+ const fixture = ['export const tokenPattern = "TOKEN.*";', 'export const tokenLabel = "token.*";'].join(String.fromCharCode(10));
+ await git.commitFile(id,"main","src/search.js",fixture,"Add search fixture",{username:"testuser",displayName:"Test User",email:"test@codevault.local"});
  const result=await git.searchCode(id,"token.*","main");
  assert.equal(result.query,"token.*");
  assert.equal(result.ref,"main");
  assert.equal(result.results.length,1);
  assert.equal(result.results[0].path,"src/search.js");
  assert.equal(result.results[0].line,2);
- assert.match(result.results[0].snippet,/token\\.\\*/);
+ assert.ok(result.results[0].snippet.includes("token.*"));
  assert.equal(result.truncated,false);
 });
 

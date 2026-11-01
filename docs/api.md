@@ -91,3 +91,8 @@ Create body: `{ repositoryId, title, description, sourceBranch, targetBranch }`.
 Common status codes: 200 success, 201 created, 204 deleted/logged out, 400 invalid input, 401 missing/invalid session, 403 insufficient permission, 404 missing or hidden resource, 409 duplicate/conflicting state, 413 payload too large, 429 rate limit, 503 missing database or durable-storage configuration.
 
 This document describes the routes in source. A successful HTTP response from production must be checked after MongoDB and persistent Git storage are configured.
+
+
+### Dependency security scanning
+
+The scanner supports npm lockfiles and exact pinned Python `requirements*.txt` entries (`package==version`). It sends resolved versions to OSV using npm or PyPI ecosystem identifiers. Unpinned ranges, editable installs and VCS URLs are excluded from exact-version vulnerability checks.

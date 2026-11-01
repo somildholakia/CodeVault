@@ -7,7 +7,7 @@ import Collaborator from "../models/Collaborator.js";
 import Activity from "../models/Activity.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
-import {listBranches,previewMerge,mergeBranches,listCommits,withRepositoryLock} from "../services/git.js";
+import {listBranches,previewMerge,mergeBranches,listCommits,withRepositoryLock,diffBranches,isAddedDiffLine} from "../services/git.js";
 import {evaluateReviewGate} from "../services/pullRequestPolicy.js";
 const router=Router();router.use(requireAuth);
 async function findRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id);if(!repo)throw notFound("Repository not found.");return repo;}
@@ -15,7 +15,7 @@ async function roleFor(repo,userId){if(repo.owner.toString()===userId.toString()
 function assertRead(role,repo){if(!role&&repo.visibility!=="public")throw notFound("Repository not found.");}
 function assertWrite(role){if(!["owner","maintainer","developer"].includes(role))throw new AppError(403,"PERMISSION_DENIED","You do not have permission to create or update pull requests.");}
 function assertManage(role){if(!["owner","maintainer"].includes(role))throw new AppError(403,"PERMISSION_DENIED","Only the owner or a maintainer can merge pull requests.");}
-async function loadPullRequest(id){if(!mongoose.isValidObjectId(id))throw notFound("Pull request not found.");const pr=await PullRequest.findById(id).populate("repository").populate("author","username displayName avatarUrl").populate("mergedBy","username displayName avatarUrl").populate("reviews.user","username displayName avatarUrl");if(!pr||!pr.repository)throw notFound("Pull request not found.");return pr;}
+async function loadPullRequest(id){if(!mongoose.isValidObjectId(id))throw notFound("Pull request not found.");const pr=await PullRequest.findById(id).populate("repository").populate("author","username displayName avatarUrl").populate("mergedBy","username displayName avatarUrl").populate("reviews.user","username displayName avatarUrl").populate("reviewThreads.author","username displayName avatarUrl").populate("reviewThreads.resolvedBy","username displayName avatarUrl");if(!pr||!pr.repository)throw notFound("Pull request not found.");return pr;}
 async function record(actor,pr,action,summary){await Activity.create({actor,repository:pr.repository._id,action,entityType:"pull_request",entityId:pr._id.toString(),entityName:pr.title,summary});}
 router.get("/",asyncHandler(async(req,res)=>{
  const membership=await Collaborator.find({user:req.user._id,acceptedAt:{$ne:null}}).select("repository");
@@ -57,6 +57,50 @@ router.post("/:id/reviews",asyncHandler(async(req,res)=>{
  else pr.reviews.push({user:req.user._id,decision:p.data.decision,body:p.data.body,submittedAt:new Date()});
  await pr.save();await record(req.user._id,pr,"pull_request.reviewed","Reviewed pull request #"+pr.number+" as "+p.data.decision+".");
  const updated=await loadPullRequest(pr._id);res.status(201).json({pullRequest:updated});
+}));
+router.get("/:id/diff",asyncHandler(async(req,res)=>{
+ const pr=await loadPullRequest(req.params.id);
+ assertRead(await roleFor(pr.repository,req.user._id),pr.repository);
+ const result=await diffBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch);
+ res.json({sourceSha:result.source,targetSha:result.target,diff:result.diff});
+}));
+router.post("/:id/comments",asyncHandler(async(req,res)=>{
+ const pr=await loadPullRequest(req.params.id);
+ const role=await roleFor(pr.repository,req.user._id);
+ if(!role)throw new AppError(403,"COLLABORATOR_REQUIRED","Only repository members can add inline review comments.");
+ if(pr.status!=="open")throw new AppError(409,"PULL_REQUEST_CLOSED","Only open pull requests can receive new inline comments.");
+ const p=z.object({
+  path:z.string().trim().min(1).max(500),
+  line:z.number().int().min(1).max(10000000),
+  side:z.enum(["RIGHT"]).default("RIGHT"),
+  commitSha:z.string().regex(/^[a-f0-9]{40}$/i),
+  body:z.string().trim().min(1).max(5000)
+ }).strict().safeParse(req.body);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Inline comment details are invalid.",p.error.flatten());
+ const diff=await diffBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch);
+ if(diff.source!==p.data.commitSha)throw new AppError(409,"DIFF_OUTDATED","The source branch has moved. Refresh the pull-request diff before commenting.");
+ if(!isAddedDiffLine(diff.diff,p.data.path,p.data.line))throw new AppError(400,"LINE_NOT_IN_DIFF","Inline comments must be attached to an added line in the current pull-request diff.");
+ pr.reviewThreads.push({author:req.user._id,body:p.data.body,path:p.data.path,line:p.data.line,side:p.data.side,commitSha:p.data.commitSha});
+ await pr.save();
+ await record(req.user._id,pr,"pull_request.inline_comment","Commented on "+p.data.path+":"+p.data.line+" in pull request #"+pr.number+".");
+ res.status(201).json({pullRequest:await loadPullRequest(pr._id)});
+}));
+router.patch("/:id/comments/:commentId",asyncHandler(async(req,res)=>{
+ const pr=await loadPullRequest(req.params.id);
+ const role=await roleFor(pr.repository,req.user._id);
+ assertRead(role,pr.repository);
+ const p=z.object({resolved:z.boolean()}).strict().safeParse(req.body);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a resolved boolean value.");
+ const thread=pr.reviewThreads.id(req.params.commentId);
+ if(!thread)throw notFound("Inline review comment not found.");
+ const authorId=thread.author?._id?.toString?.()||thread.author?.toString?.();
+ if(authorId!==req.user._id.toString()&&!["owner","maintainer"].includes(role))throw new AppError(403,"PERMISSION_DENIED","Only the comment author, owner or maintainer can resolve this thread.");
+ thread.resolved=p.data.resolved;
+ thread.resolvedBy=p.data.resolved?req.user._id:null;
+ thread.resolvedAt=p.data.resolved?new Date():null;
+ await pr.save();
+ await record(req.user._id,pr,p.data.resolved?"pull_request.thread_resolved":"pull_request.thread_reopened",(p.data.resolved?"Resolved":"Reopened")+" an inline review thread in pull request #"+pr.number+".");
+ res.json({pullRequest:await loadPullRequest(pr._id)});
 }));
 router.post("/:id/close",asyncHandler(async(req,res)=>{
  const pr=await loadPullRequest(req.params.id),role=await roleFor(pr.repository,req.user._id);

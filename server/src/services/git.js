@@ -515,3 +515,77 @@ export async function fileBlame(id, ref, file) {
   }
   return {ref: revision, path: target, lines};
 }
+
+
+export async function getContributionStats(id, ref = "all", days = 90) {
+  const root = repositoryPath(id);
+  const revision = ref === "all" ? "all" : safeRef(ref);
+  const windowDays = Math.min(365, Math.max(7, Number(days) || 90));
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - (windowDays - 1));
+  const since = start.toISOString();
+  const logArgs = ["log", "--no-merges", "--max-count=1000", "--since=" + since, "--date=short", "--format=%H%x1f%an%x1f%ad%x1f%s"];
+  const statArgs = ["log", "--no-merges", "--max-count=1000", "--since=" + since, "--numstat", "--format="];
+  if (revision === "all") {
+    logArgs.splice(1, 0, "--all");
+    statArgs.splice(1, 0, "--all");
+  } else {
+    await git(root, ["rev-parse", "--verify", revision + "^{commit}"]);
+    logArgs.push(revision);
+    statArgs.push(revision);
+  }
+  const [logResult, statResult] = await Promise.all([git(root, logArgs), git(root, statArgs)]);
+  const dailyCounts = new Map();
+  const authors = new Map();
+  let totalCommits = 0;
+  for (const row of logResult.stdout.split(/\r?\n/).filter(Boolean)) {
+    const [sha, author, date, ...message] = row.split(String.fromCharCode(31));
+    if (!/^[a-f0-9]{40}$/i.test(sha || "") || !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) continue;
+    totalCommits++;
+    dailyCounts.set(date, (dailyCounts.get(date) || 0) + 1);
+    const current = authors.get(author) || {name: author, commits: 0, lastCommit: date};
+    current.commits++;
+    if (date > current.lastCommit) current.lastCommit = date;
+    authors.set(author, current);
+  }
+  const fileStats = new Map();
+  let additions = 0, deletions = 0, binaryFiles = 0;
+  for (const row of statResult.stdout.split(/\r?\n/)) {
+    if (!row) continue;
+    const parts = row.split("\t");
+    if (parts.length < 3) continue;
+    const file = parts.slice(2).join("\t");
+    if (!file || file.startsWith("-")) continue;
+    const add = parts[0] === "-" ? 0 : Number(parts[0]) || 0;
+    const remove = parts[1] === "-" ? 0 : Number(parts[1]) || 0;
+    if (parts[0] === "-" || parts[1] === "-") binaryFiles++;
+    additions += add;
+    deletions += remove;
+    const item = fileStats.get(file) || {path: file, additions: 0, deletions: 0, changes: 0};
+    item.additions += add;
+    item.deletions += remove;
+    item.changes++;
+    fileStats.set(file, item);
+  }
+  const daily = [];
+  for (let offset = 0; offset < windowDays; offset++) {
+    const date = new Date(start);
+    date.setUTCDate(date.getUTCDate() + offset);
+    const key = date.toISOString().slice(0, 10);
+    daily.push({date: key, weekday: date.getUTCDay(), commits: dailyCounts.get(key) || 0});
+  }
+  return {
+    ref: revision,
+    windowDays,
+    totalCommits,
+    contributorCount: authors.size,
+    additions,
+    deletions,
+    binaryFiles,
+    daily,
+    authors: [...authors.values()].sort((a, b) => b.commits - a.commits || a.name.localeCompare(b.name)).slice(0, 12),
+    hotFiles: [...fileStats.values()].sort((a, b) => b.changes - a.changes || (b.additions + b.deletions) - (a.additions + a.deletions)).slice(0, 12)
+  };
+}

@@ -9,7 +9,7 @@ import Issue from "../models/Issue.js";
 import Activity from "../models/Activity.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
-import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,withRepositoryLock} from "../services/git.js";
+import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,uid){if(repo.owner._id.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -34,6 +34,18 @@ router.post("/",asyncHandler(async(req,res)=>{
  res.status(201).json({repository:await Repository.findById(repo._id).populate("owner","username displayName avatarUrl"),cloneUrl:null});
 }));
 router.get("/:id",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id),role=await roleFor(repo,req.user._id);assertRead(role,repo);res.json({repository:repo,permission:role||"public-viewer"});}));
+router.get("/:id/search",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const p=z.object({
+  q:z.string().trim().min(1).max(100),
+  ref:z.string().trim().min(1).max(160).optional(),
+  limit:z.coerce.number().int().min(1).max(200).optional()
+ }).safeParse(req.query);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide search text between 1 and 100 characters and a valid result limit.",p.error.flatten());
+ const result=await searchCode(repo._id,p.data.q,p.data.ref||repo.defaultBranch,p.data.limit||100);
+ res.json(result);
+}));
 router.get("/:id/files",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const ref=String(req.query.ref||repo.defaultBranch);res.json({files:await listFiles(repo._id,ref),ref});}));
 router.get("/:id/files/content",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json(await readFile(repo._id,String(req.query.ref||repo.defaultBranch),String(req.query.path||"")));}));
 router.get("/:id/commits",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({commits:await listCommits(repo._id,String(req.query.ref||repo.defaultBranch),Number(req.query.limit)||50)});}));

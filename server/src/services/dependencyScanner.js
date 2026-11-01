@@ -197,6 +197,7 @@ export async function scanDependencies(id, ref = "main") {
     packageCount: allPackages.length,
     scannedPackageCount: scannedPackages.length,
     vulnerabilityCount,
+    dependencies: scannedPackages,
     findings: findings.sort((a, b) => ["critical","high","medium","low","unrated"].indexOf(a.severity) - ["critical","high","medium","low","unrated"].indexOf(b.severity)),
     summary,
     truncated: allPackages.length > MAX_PACKAGES || detailsTruncated,

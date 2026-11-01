@@ -199,3 +199,57 @@ test("deletes only fully merged non-default branches and protects stale refs",as
  assert.equal(deleted.deletedHead,side.sha);
  assert.ok(!(await git.listBranches(id)).some(item=>item.name==="feature/not-merged"));
 });
+
+test("previews a three-way conflict and resolves it into a real two-parent merge commit",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/conflict-editor","main");
+ await git.commitFile(id,"feature/conflict-editor","README.md","# source version\\n","Change README on source",author);
+ await git.commitFile(id,"main","README.md","# target version\\n","Change README on target",author);
+ const targetHead=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ const sourceHead=(await git.listBranches(id)).find(item=>item.name==="feature/conflict-editor").sha;
+ const preview=await git.previewMerge(id,"feature/conflict-editor","main");
+ assert.equal(preview.canMerge,false);
+ assert.equal(preview.targetHead,targetHead);
+ assert.equal(preview.sourceSha,sourceHead);
+ assert.equal(preview.conflictFiles.length,1);
+ const conflict=preview.conflictFiles[0];
+ assert.equal(conflict.path,"README.md");
+ assert.equal(conflict.canEdit,true);
+ assert.match(conflict.base,/test-project/);
+ assert.match(conflict.ours,/target version/);
+ assert.match(conflict.theirs,/source version/);
+ assert.match(conflict.merged,/<<<<<<< HEAD/);
+ await assert.rejects(
+  ()=>git.resolveMergeConflicts(id,"feature/conflict-editor","main",targetHead,sourceHead,[],author),
+  error=>error.code==="CONFLICT_SET_CHANGED"
+ );
+ const resolution="# reconciled version\\n";
+ const result=await git.resolveMergeConflicts(
+  id,"feature/conflict-editor","main",targetHead,sourceHead,
+  [{path:"README.md",content:resolution}],author
+ );
+ assert.equal(result.merged,true);
+ assert.deepEqual(result.resolvedFiles,["README.md"]);
+ assert.equal((await git.readFile(id,"main","README.md")).content,resolution);
+ const graph=await git.listCommitGraph(id,"main",10);
+ const merge=graph.commits.find(item=>item.sha===result.mergeCommit);
+ assert.equal(merge.parents.length,2);
+ assert.ok(merge.parents.includes(targetHead));
+ assert.ok(merge.parents.includes(sourceHead));
+});
+
+test("rejects a merge resolution when either branch moved after the preview",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/stale-merge","main");
+ await git.commitFile(id,"feature/stale-merge","README.md","# source\\n","Change source README",author);
+ await git.commitFile(id,"main","README.md","# target\\n","Change target README",author);
+ const preview=await git.previewMerge(id,"feature/stale-merge","main");
+ const sourceHead=(await git.listBranches(id)).find(item=>item.name==="feature/stale-merge").sha;
+ await git.commitFile(id,"feature/stale-merge","source-extra.js","export const changed = true;\\n","Move source after preview",author);
+ await assert.rejects(
+  ()=>git.resolveMergeConflicts(id,"feature/stale-merge","main",preview.targetHead,sourceHead,preview.conflictFiles.map(item=>({path:item.path,content:"resolved\\n"})),author),
+  error=>error.code==="BRANCH_MOVED"
+ );
+});

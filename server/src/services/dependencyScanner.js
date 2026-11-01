@@ -93,12 +93,17 @@ function fixedVersionsOf(vulnerability, packageName) {
 
 async function queryOsv(packages) {
   const queries = packages.map(item => ({package: {name: item.name, ecosystem: "npm"}, version: item.version}));
-  const response = await fetch("https://api.osv.dev/v1/querybatch", {
-    method: "POST",
-    headers: {"content-type": "application/json", "accept": "application/json"},
-    body: JSON.stringify({queries}),
-    signal: AbortSignal.timeout(20000)
-  });
+  let response;
+  try {
+    response = await fetch("https://api.osv.dev/v1/querybatch", {
+      method: "POST",
+      headers: {"content-type": "application/json", "accept": "application/json"},
+      body: JSON.stringify({queries}),
+      signal: AbortSignal.timeout(20000)
+    });
+  } catch {
+    throw new AppError(503, "VULNERABILITY_SERVICE_UNAVAILABLE", "The OSV vulnerability service could not be reached. Retry later.");
+  }
   if (!response.ok) throw new AppError(503, "VULNERABILITY_SERVICE_UNAVAILABLE", "The OSV vulnerability service could not complete the scan. Retry later.");
   const payload = await response.json();
   if (!Array.isArray(payload.results) || payload.results.length !== queries.length) {
@@ -115,15 +120,20 @@ async function queryOsv(packages) {
     }
   });
   const ids = [...matches.keys()].slice(0, MAX_DETAILS);
+  const resultsTruncated = payload.results.some(result => Boolean(result.next_page_token));
   const details = new Map();
   for (let offset = 0; offset < ids.length; offset += 8) {
     const batch = await Promise.all(ids.slice(offset, offset + 8).map(async id => {
-      const detailResponse = await fetch("https://api.osv.dev/v1/vulns/" + encodeURIComponent(id), {
-        headers: {"accept": "application/json"},
-        signal: AbortSignal.timeout(12000)
-      });
-      if (!detailResponse.ok) return [id, {id}];
-      return [id, await detailResponse.json()];
+      try {
+        const detailResponse = await fetch("https://api.osv.dev/v1/vulns/" + encodeURIComponent(id), {
+          headers: {"accept": "application/json"},
+          signal: AbortSignal.timeout(12000)
+        });
+        if (!detailResponse.ok) return [id, {id}];
+        return [id, await detailResponse.json()];
+      } catch {
+        return [id, {id}];
+      }
     }));
     for (const [id, detail] of batch) details.set(id, detail);
   }
@@ -145,7 +155,7 @@ async function queryOsv(packages) {
       });
     }
   }
-  return {findings, vulnerabilityCount: matches.size, detailsTruncated: matches.size > MAX_DETAILS};
+  return {findings, vulnerabilityCount: matches.size, detailsTruncated: matches.size > MAX_DETAILS, resultsTruncated};
 }
 
 export async function scanDependencies(id, ref = "main") {
@@ -200,7 +210,7 @@ export async function scanDependencies(id, ref = "main") {
     dependencies: scannedPackages,
     findings: findings.sort((a, b) => ["critical","high","medium","low","unrated"].indexOf(a.severity) - ["critical","high","medium","low","unrated"].indexOf(b.severity)),
     summary,
-    truncated: allPackages.length > MAX_PACKAGES || detailsTruncated,
+    truncated: allPackages.length > MAX_PACKAGES || detailsTruncated || resultsTruncated,
     scannedAt: new Date().toISOString()
   };
 }

@@ -44,7 +44,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/test/` — real temporary Git repository and pull-request review-policy tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
-Source archives and external notifications remain future work. Dependency vulnerability scanning and multi-instance distributed Git locking still require additional production hardening.
+Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
 
 ## Local setup
 

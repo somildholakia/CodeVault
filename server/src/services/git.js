@@ -231,8 +231,14 @@ export async function resolveMergeConflicts(id, sourceRef, targetRef, expectedHe
     const mergeSha = (await git(sandbox, ["rev-parse", "HEAD"])).stdout.trim();
     const parents = (await git(sandbox, ["rev-list", "--parents", "-n", "1", mergeSha])).stdout.trim().split(" ").slice(1);
     if (!parents.includes(targetSha) || !parents.includes(sourceSha)) throw new AppError(500, "INVALID_MERGE_COMMIT", "The resulting commit does not contain both expected parents.");
+    // Merge commits created in the isolated clone live in its object database.
+    // Fetch the new commit into the main repository before advancing its branch ref.
+    await git(sandbox, ["update-ref", "refs/heads/codevault-merge-result", mergeSha]);
+    await git(root, ["fetch", "--no-tags", sandbox, "refs/heads/codevault-merge-result"]);
+    const importedSha = (await git(root, ["rev-parse", "FETCH_HEAD"])).stdout.trim();
+    if (importedSha !== mergeSha) throw new AppError(500, "MERGE_OBJECT_IMPORT_FAILED", "The resolved merge commit could not be imported into the repository.");
     try { await git(root, ["update-ref", "refs/heads/" + target, mergeSha, targetSha]); }
-    catch { throw new AppError(409, "BRANCH_MOVED", "The target branch moved while the merge was being finalized. Refresh and retry."); }
+    catch (error) { throw new AppError(409, "BRANCH_MOVED", "The target branch moved while the merge was being finalized. Refresh and retry.", {cause: error.message}); }
     const currentBranch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => ({stdout: ""}))).stdout.trim();
     if (currentBranch === target) await git(root, ["reset", "--hard", mergeSha]);
     return {merged: true, source, target, sourceSha, targetHead: mergeSha, mergeCommit: mergeSha, resolvedFiles: conflicts};

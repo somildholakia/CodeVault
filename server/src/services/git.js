@@ -80,10 +80,11 @@ export async function searchCode(id, query, ref = "main", limit = 100) {
 
 export async function listTags(id) {
   const root = repositoryPath(id);
-  const format = "%(refname:short)%x1f%(objectname)%x1f%(*objectname)%x1f%(creatordate:iso-strict)%x1f%(subject)";
+  const format = "%(refname:short)|%(objectname)|%(*objectname)|%(creatordate:iso-strict)|%(subject)";
   const result = await git(root, ["for-each-ref", "--sort=-creatordate", "--format=" + format, "refs/tags"]);
   return result.stdout.split(String.fromCharCode(10)).filter(Boolean).map(row => {
-    const [name, objectSha, targetSha, createdAt, subject] = row.split(String.fromCharCode(31));
+    const [name, objectSha, targetSha, createdAt, ...subjectParts] = row.split("|");
+    const subject = subjectParts.join("|");
     return {name, objectSha, commitSha: targetSha || objectSha, createdAt, subject: subject || ""};
   });
 }

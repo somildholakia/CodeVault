@@ -204,8 +204,8 @@ test("previews a three-way conflict and resolves it into a real two-parent merge
  const id=await makeRepo();
  const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
  await git.createBranch(id,"feature/conflict-editor","main");
- await git.commitFile(id,"feature/conflict-editor","README.md","# source version\\n","Change README on source",author);
- await git.commitFile(id,"main","README.md","# target version\\n","Change README on target",author);
+ await git.commitFile(id,"feature/conflict-editor","README.md","# source version\n","Change README on source",author);
+ await git.commitFile(id,"main","README.md","# target version\n","Change README on target",author);
  const targetHead=(await git.listBranches(id)).find(item=>item.name==="main").sha;
  const sourceHead=(await git.listBranches(id)).find(item=>item.name==="feature/conflict-editor").sha;
  const preview=await git.previewMerge(id,"feature/conflict-editor","main");
@@ -224,7 +224,7 @@ test("previews a three-way conflict and resolves it into a real two-parent merge
   ()=>git.resolveMergeConflicts(id,"feature/conflict-editor","main",targetHead,sourceHead,[],author),
   error=>error.code==="CONFLICT_SET_CHANGED"
  );
- const resolution="# reconciled version\\n";
+ const resolution="# reconciled version\n";
  const result=await git.resolveMergeConflicts(
   id,"feature/conflict-editor","main",targetHead,sourceHead,
   [{path:"README.md",content:resolution}],author
@@ -243,13 +243,13 @@ test("rejects a merge resolution when either branch moved after the preview",asy
  const id=await makeRepo();
  const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
  await git.createBranch(id,"feature/stale-merge","main");
- await git.commitFile(id,"feature/stale-merge","README.md","# source\\n","Change source README",author);
- await git.commitFile(id,"main","README.md","# target\\n","Change target README",author);
+ await git.commitFile(id,"feature/stale-merge","README.md","# source\n","Change source README",author);
+ await git.commitFile(id,"main","README.md","# target\n","Change target README",author);
  const preview=await git.previewMerge(id,"feature/stale-merge","main");
  const sourceHead=(await git.listBranches(id)).find(item=>item.name==="feature/stale-merge").sha;
- await git.commitFile(id,"feature/stale-merge","source-extra.js","export const changed = true;\\n","Move source after preview",author);
+ await git.commitFile(id,"feature/stale-merge","source-extra.js","export const changed = true;\n","Move source after preview",author);
  await assert.rejects(
-  ()=>git.resolveMergeConflicts(id,"feature/stale-merge","main",preview.targetHead,sourceHead,preview.conflictFiles.map(item=>({path:item.path,content:"resolved\\n"})),author),
+  ()=>git.resolveMergeConflicts(id,"feature/stale-merge","main",preview.targetHead,sourceHead,preview.conflictFiles.map(item=>({path:item.path,content:"resolved\n"})),author),
   error=>error.code==="BRANCH_MOVED"
  );
 });

@@ -1,4 +1,5 @@
 import {Router} from "express";
+import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import fs from "node:fs/promises";
 import {z} from "zod";
@@ -15,6 +16,7 @@ import {selectBranchProtection} from "../services/pullRequestPolicy.js";
 import {scanDependencies} from "../services/dependencyScanner.js";
 import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,getContributionStats,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
+const dependencyScanLimiter=rateLimit({windowMs:60000,limit:4,standardHeaders:"draft-7",legacyHeaders:false});
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,uid){if(repo.owner._id.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});return c?.role||null;}
 const canRead=(role,repo)=>Boolean(role)||repo.visibility==="public";
@@ -104,7 +106,7 @@ router.get("/:id/compare",asyncHandler(async(req,res)=>{
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose two commit refs to compare.",p.error.flatten());
  res.json(await compareCommits(repo._id,p.data.base,p.data.target));
 }));
-router.get("/:id/dependencies",asyncHandler(async(req,res)=>{
+router.get("/:id/dependencies",dependencyScanLimiter,asyncHandler(async(req,res)=>{
  const repo=await getRepo(req.params.id);
  assertRead(await roleFor(repo,req.user._id),repo);
  const ref=String(req.query.ref||repo.defaultBranch);

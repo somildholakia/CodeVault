@@ -180,7 +180,7 @@ test("deletes only fully merged non-default branches and protects stale refs",as
  const side=await git.commitFile(id,"feature/not-merged","side.js","export const side = true;","Add side branch change",author);
  const sideHead=(await git.listBranches(id)).find(item=>item.name==="feature/not-merged").sha;
  await assert.rejects(()=>git.deleteBranch(id,"feature/not-merged","main",mainHead),e=>e.code==="BRANCH_MOVED");
- await assert.rejects(()=>git.deleteBranch(id,"feature/not-merged","main",sideHead),e=>e.code==="GIT_OPERATION_FAILED");
+ await assert.rejects(()=>git.deleteBranch(id,"feature/not-merged","main",sideHead),e=>e.code==="BRANCH_NOT_MERGED");
  await git.mergeBranches(id,"feature/not-merged","main",mainHead);
  const mergedHead=(await git.listBranches(id)).find(item=>item.name==="feature/not-merged").sha;
  const deleted=await git.deleteBranch(id,"feature/not-merged","main",mergedHead);

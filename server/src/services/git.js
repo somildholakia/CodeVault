@@ -2,6 +2,7 @@ import {execFile} from "node:child_process";
 import {promisify} from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import {AppError} from "../utils/errors.js";
 const execFileAsync=promisify(execFile);
 const storage=path.resolve(process.env.REPO_STORAGE_PATH||path.join(process.cwd(),"storage","repos"));
@@ -22,7 +23,222 @@ export async function listBranches(id){
  return Promise.all(names.map(async name=>({name,sha:(await git(root,["rev-parse","refs/heads/"+safeRef(name)])).stdout.trim()})));
 }
 export async function createBranch(id,name,base="main"){const branch=safeRef(name),start=safeRef(base);if(!/^[A-Za-z0-9_./-]{1,120}$/.test(branch))throw new AppError(400,"INVALID_BRANCH_NAME","Branch name is invalid.");await git(repositoryPath(id),["check-ref-format","--branch",branch]);await git(repositoryPath(id),["branch","--",branch,start]);return {name:branch};}
-export async function previewMerge(id,source,target){const root=repositoryPath(id),from=safeRef(source),into=safeRef(target);if(from===into)throw new AppError(400,"SAME_BRANCH","Choose different branches.");const d=await git(root,["diff","--name-status",into+"..."+from]);const files=d.stdout.split(/\r?\n/).filter(Boolean).map(line=>{const v=line.split("\t");return {status:v[0],path:v[v.length-1]};});let canMerge=true,conflicts=[];try{await git(root,["merge-tree","--write-tree",into,from]);}catch(e){canMerge=false;const detail=String(e.details?.message||e.message||"");conflicts=detail.split(/\r?\n/).filter(Boolean).slice(0,25);}const branches=await listBranches(id);return {source:from,target:into,canMerge,files,conflicts,targetHead:branches.find(b=>b.name===into)?.sha||null};}
+
+async function createMergeSandbox(root, targetSha) {
+  const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "codevault-merge-"));
+  try {
+    await execFileAsync("git", ["clone", "--shared", "--no-checkout", root, sandbox], {
+      cwd: storage,
+      timeout: 30000,
+      maxBuffer: 4 * 1024 * 1024,
+      windowsHide: true,
+      env: {...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1"}
+    });
+    await git(sandbox, ["checkout", "--quiet", "--detach", targetSha]);
+    return sandbox;
+  } catch (error) {
+    await fs.rm(sandbox, {recursive: true, force: true}).catch(() => {});
+    throw error;
+  }
+}
+
+async function readConflictStage(root, stage, file) {
+  try {
+    const result = await git(root, ["show", stage + ":" + file]);
+    const binary = result.stdout.includes("\0");
+    return {
+      content: binary ? "" : result.stdout.slice(0, 500000),
+      binary,
+      tooLarge: Buffer.byteLength(result.stdout, "utf8") > 500000
+    };
+  } catch {
+    return {content: "", binary: false, tooLarge: false, missing: true};
+  }
+}
+
+async function inspectConflictFiles(root, paths) {
+  const items = [];
+  for (const rawPath of paths) {
+    const file = safePath(rawPath);
+    const stageEntries = (await git(root, ["ls-files", "-u", "--", file])).stdout.split(/\r?\n/).filter(Boolean);
+    const modes = stageEntries.map(line => line.split(" ")[0]);
+    const [base, ours, theirs] = await Promise.all([
+      readConflictStage(root, ":1", file),
+      readConflictStage(root, ":2", file),
+      readConflictStage(root, ":3", file)
+    ]);
+    let merged = "", unsupported = modes.some(mode => mode === "120000" || mode === "160000");
+    try {
+      const target = path.resolve(root, file);
+      if (!target.startsWith(root + path.sep)) throw new AppError(400, "INVALID_FILE_PATH", "A conflict path is outside the repository.");
+      let cursor = root;
+      for (const part of file.split("/").slice(0, -1)) {
+        cursor = path.join(cursor, part);
+        try {
+          const stat = await fs.lstat(cursor);
+          if (stat.isSymbolicLink() || !stat.isDirectory()) unsupported = true;
+        } catch (error) { if (error.code !== "ENOENT") throw error; }
+      }
+      try {
+        const stat = await fs.lstat(target);
+        if (stat.isSymbolicLink() || !stat.isFile()) unsupported = true;
+        else {
+          const buffer = await fs.readFile(target);
+          if (buffer.length > 500000 || buffer.includes(0)) unsupported = true;
+          else merged = buffer.toString("utf8");
+        }
+      } catch (error) { if (error.code !== "ENOENT") throw error; }
+    } catch {
+      unsupported = true;
+    }
+    unsupported = unsupported || base.binary || ours.binary || theirs.binary || base.tooLarge || ours.tooLarge || theirs.tooLarge;
+    items.push({
+      path: file,
+      base: base.missing ? null : base.content,
+      ours: ours.missing ? null : ours.content,
+      theirs: theirs.missing ? null : theirs.content,
+      merged,
+      canEdit: !unsupported,
+      reason: unsupported ? "Binary, oversized, symlink or submodule conflict; resolve outside the text editor." : ""
+    });
+  }
+  return items;
+}
+
+async function runMergeInSandbox(id, sourceRef, targetRef) {
+  const root = repositoryPath(id);
+  const source = safeRef(sourceRef);
+  const target = safeRef(targetRef);
+  if (source === target) throw new AppError(400, "SAME_BRANCH", "Choose different branches.");
+  const [sourceResult, targetResult] = await Promise.all([
+    git(root, ["rev-parse", "--verify", source + "^{commit}"]),
+    git(root, ["rev-parse", "--verify", target + "^{commit}"])
+  ]);
+  const sourceSha = sourceResult.stdout.trim();
+  const targetSha = targetResult.stdout.trim();
+  const mergeBase = (await git(root, ["merge-base", targetSha, sourceSha])).stdout.trim();
+  const sandbox = await createMergeSandbox(root, targetSha);
+  let mergeError = null;
+  try {
+    try {
+      await git(sandbox, ["merge", "--no-commit", "--no-ff", sourceSha]);
+    } catch (error) {
+      mergeError = error;
+    }
+    const conflictPaths = (await git(sandbox, ["diff", "--name-only", "--diff-filter=U"])).stdout.split(/\r?\n/).filter(Boolean);
+    if (mergeError && conflictPaths.length === 0) throw mergeError;
+    const conflictFiles = conflictPaths.length ? await inspectConflictFiles(sandbox, conflictPaths) : [];
+    return {sandbox, source, target, sourceSha, targetSha, mergeBase, conflictPaths, conflictFiles, clean: conflictPaths.length === 0, mergeError};
+  } catch (error) {
+    await fs.rm(sandbox, {recursive: true, force: true}).catch(() => {});
+    throw error;
+  }
+}
+
+export async function previewMerge(id,source,target){
+  const root=repositoryPath(id),from=safeRef(source),into=safeRef(target);
+  if(from===into)throw new AppError(400,"SAME_BRANCH","Choose different branches.");
+  const d=await git(root,["diff","--name-status",into+"..."+from]);
+  const files=d.stdout.split(/\r?\n/).filter(Boolean).map(line=>{const v=line.split("\t");return {status:v[0],path:v[v.length-1]};});
+  let canMerge=true,conflicts=[],conflictFiles=[];
+  try{await git(root,["merge-tree","--write-tree",into,from]);}
+  catch(e){
+    canMerge=false;
+    const detail=String(e.details?.message||e.message||"");
+    conflicts=detail.split(/\r?\n/).filter(Boolean).slice(0,25);
+    const sandboxResult=await runMergeInSandbox(id,from,into);
+    try { conflictFiles=sandboxResult.conflictFiles; }
+    finally { await fs.rm(sandboxResult.sandbox,{recursive:true,force:true}).catch(()=>{}); }
+  }
+  const [branches,sourceSha]=await Promise.all([listBranches(id),git(root,["rev-parse","--verify",from+"^{commit}"])]);
+  return {source:from,target:into,sourceSha:sourceSha.stdout.trim(),canMerge,files,conflicts,conflictFiles,targetHead:branches.find(b=>b.name===into)?.sha||null};
+}
+
+export async function resolveMergeConflicts(id, sourceRef, targetRef, expectedHead, expectedSourceSha, resolutions, author = {}) {
+  const root = repositoryPath(id);
+  const target = safeRef(targetRef);
+  const source = safeRef(sourceRef);
+  if (source === target) throw new AppError(400, "SAME_BRANCH", "Choose different branches.");
+  if (typeof expectedHead !== "string" || !/^[a-f0-9]{40}$/i.test(expectedHead) ||
+      typeof expectedSourceSha !== "string" || !/^[a-f0-9]{40}$/i.test(expectedSourceSha)) {
+    throw new AppError(400, "EXPECTED_HEAD_REQUIRED", "Refresh the merge preview and provide both current branch head SHAs.");
+  }
+  if (!Array.isArray(resolutions) || resolutions.length > 50) throw new AppError(400, "INVALID_RESOLUTIONS", "Provide at most 50 file resolutions.");
+  const [currentTarget,currentSource,status] = await Promise.all([
+    git(root, ["rev-parse", "--verify", "refs/heads/" + target]),
+    git(root, ["rev-parse", "--verify", source + "^{commit}"]),
+    git(root, ["status", "--porcelain"])
+  ]);
+  const targetSha = currentTarget.stdout.trim();
+  const sourceSha = currentSource.stdout.trim();
+  if (targetSha !== expectedHead || sourceSha !== expectedSourceSha) throw new AppError(409, "BRANCH_MOVED", "A source or target branch moved since preview. Refresh the merge preview.");
+  if (status.stdout.trim()) throw new AppError(409, "WORKTREE_NOT_CLEAN", "The repository worktree has uncommitted changes. Save or discard them before resolving a merge.");
+  const supplied = new Map();
+  for (const item of resolutions) {
+    if (!item || typeof item.path !== "string") throw new AppError(400, "INVALID_RESOLUTIONS", "Each resolution needs a repository-relative path.");
+    const file = safePath(item.path);
+    if (supplied.has(file)) throw new AppError(400, "DUPLICATE_RESOLUTION", "A conflict file may be resolved only once.");
+    if (typeof item.delete !== "undefined" && typeof item.delete !== "boolean") throw new AppError(400, "INVALID_RESOLUTIONS", "The delete flag must be a boolean.");
+    if (!item.delete && (typeof item.content !== "string" || Buffer.byteLength(item.content, "utf8") > 1048576)) {
+      throw new AppError(413, "FILE_TOO_LARGE", "Each resolved text file must be at most 1 MiB.");
+    }
+    supplied.set(file, {content: item.content || "", delete: Boolean(item.delete)});
+  }
+  const sandbox = await createMergeSandbox(root, targetSha);
+  try {
+    let mergeError = null;
+    try { await git(sandbox, ["merge", "--no-commit", "--no-ff", sourceSha]); }
+    catch (error) { mergeError = error; }
+    const conflicts = (await git(sandbox, ["diff", "--name-only", "--diff-filter=U"])).stdout.split(/\r?\n/).filter(Boolean).map(safePath);
+    if (mergeError && conflicts.length === 0) throw mergeError;
+    if (conflicts.length !== supplied.size || conflicts.some(file => !supplied.has(file))) {
+      throw new AppError(409, "CONFLICT_SET_CHANGED", "The conflict set changed since preview. Refresh the merge preview and resolve every current conflict.", {conflicts});
+    }
+    const unsupported = await inspectConflictFiles(sandbox, conflicts);
+    const unsupportedFiles = unsupported.filter(item => !item.canEdit).map(item => item.path);
+    if (unsupportedFiles.length) throw new AppError(409, "UNSUPPORTED_CONFLICT", "Some conflicts cannot be safely resolved in the text editor.", {files: unsupportedFiles});
+    for (const file of conflicts) {
+      const resolution = supplied.get(file);
+      const targetPath = path.resolve(sandbox, file);
+      if (!targetPath.startsWith(sandbox + path.sep)) throw new AppError(400, "INVALID_FILE_PATH", "A conflict path is outside the repository.");
+      let cursor = sandbox;
+      for (const part of file.split("/").slice(0, -1)) {
+        cursor = path.join(cursor, part);
+        try {
+          const stat = await fs.lstat(cursor);
+          if (stat.isSymbolicLink() || !stat.isDirectory()) throw new AppError(400, "SYMLINK_PATH_NOT_ALLOWED", "Resolving conflicts through symlinks is prohibited.");
+        } catch (error) { if (error.code !== "ENOENT") throw error; }
+      }
+      if (resolution.delete) {
+        await fs.rm(targetPath, {force: true});
+      } else {
+        try {
+          const stat = await fs.lstat(targetPath);
+          if (stat.isSymbolicLink() || !stat.isFile()) throw new AppError(400, "SYMLINK_PATH_NOT_ALLOWED", "Resolving symlink conflicts is prohibited.");
+        } catch (error) { if (error.code !== "ENOENT") throw error; }
+        await fs.mkdir(path.dirname(targetPath), {recursive: true, mode: 0o750});
+        await fs.writeFile(targetPath, resolution.content, {encoding: "utf8", mode: 0o640});
+      }
+    }
+    await git(sandbox, ["add", "-A", "--", ...conflicts]);
+    const remaining = (await git(sandbox, ["diff", "--name-only", "--diff-filter=U"])).stdout.split(/\r?\n/).filter(Boolean);
+    if (remaining.length) throw new AppError(409, "UNRESOLVED_CONFLICTS", "Git still reports unresolved conflicts.", {conflicts: remaining});
+    const name = String(author.displayName || author.username || "CodeVault Member").slice(0, 80);
+    const email = String(author.email || "member@codevault.local").slice(0, 254);
+    await git(sandbox, ["-c", "user.name=" + name, "-c", "user.email=" + email, "commit", "--no-edit"]);
+    const mergeSha = (await git(sandbox, ["rev-parse", "HEAD"])).stdout.trim();
+    const parents = (await git(sandbox, ["rev-list", "--parents", "-n", "1", mergeSha])).stdout.trim().split(" ").slice(1);
+    if (!parents.includes(targetSha) || !parents.includes(sourceSha)) throw new AppError(500, "INVALID_MERGE_COMMIT", "The resulting commit does not contain both expected parents.");
+    try { await git(root, ["update-ref", "refs/heads/" + target, mergeSha, targetSha]); }
+    catch { throw new AppError(409, "BRANCH_MOVED", "The target branch moved while the merge was being finalized. Refresh and retry."); }
+    const currentBranch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => ({stdout: ""}))).stdout.trim();
+    if (currentBranch === target) await git(root, ["reset", "--hard", mergeSha]);
+    return {merged: true, source, target, sourceSha, targetHead: mergeSha, mergeCommit: mergeSha, resolvedFiles: conflicts};
+  } finally {
+    await fs.rm(sandbox, {recursive: true, force: true}).catch(() => {});
+  }
+}
+
 export async function mergeBranches(id,source,target,expectedHead){const root=repositoryPath(id),from=safeRef(source),into=safeRef(target);if(from===into)throw new AppError(400,"SAME_BRANCH","Choose different branches.");const current=(await git(root,["rev-parse",into])).stdout.trim();if(expectedHead&&current!==expectedHead)throw new AppError(409,"BRANCH_MOVED","Target branch moved since preview; refresh before merging.");await git(root,["checkout","--quiet",into]);try{await git(root,["merge","--no-edit","--no-ff",from]);return {merged:true};}catch(e){const conflicts=(await git(root,["diff","--name-only","--diff-filter=U"]).catch(()=>({stdout:""}))).stdout.split(/\r?\n/).filter(Boolean);await git(root,["merge","--abort"]).catch(()=>{});throw new AppError(409,"MERGE_CONFLICT","Git could not merge these branches without conflicts.",{conflictingFiles:conflicts,message:e.message});}}
 export async function commitFile(id,branch,file,content,message,author){if(typeof content!=="string"||Buffer.byteLength(content,"utf8")>1048576)throw new AppError(413,"FILE_TOO_LARGE","A commit is limited to 1 MiB of text.");if(typeof message!=="string"||message.trim().length<3||message.trim().length>180)throw new AppError(400,"INVALID_COMMIT_MESSAGE","Commit message must be 3–180 characters.");const root=repositoryPath(id),b=safeRef(branch),p=safePath(file);await git(root,["checkout","--quiet",b]);const target=path.resolve(root,p);if(!target.startsWith(root+path.sep))throw new AppError(400,"INVALID_FILE_PATH","The path is outside the repository.");let current=root;for(const part of p.split("/").slice(0,-1)){current=path.join(current,part);try{if((await fs.lstat(current)).isSymbolicLink())throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Editing through symbolic links is prohibited.");}catch(e){if(e.code==="ENOENT")break;throw e;}}try{if((await fs.lstat(target)).isSymbolicLink())throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Editing symbolic links is prohibited.");}catch(e){if(e.code!=="ENOENT")throw e;}await fs.mkdir(path.dirname(target),{recursive:true,mode:0o750});await fs.writeFile(target,content,{encoding:"utf8",mode:0o640});await git(root,["add","--",p]);await git(root,["-c","user.name="+String(author.displayName||author.username).slice(0,80),"-c","user.email="+String(author.email||"member@codevault.local").slice(0,254),"commit","-m",message.trim()]);return {sha:(await git(root,["rev-parse","HEAD"])).stdout.trim(),branch:b,path:p};}
 export async function diffCommit(id,commitSha){if(!/^[a-f0-9]{7,40}$/i.test(commitSha))throw new AppError(400,"INVALID_COMMIT","Invalid commit identifier.");return (await git(repositoryPath(id),["show","--no-ext-diff","--format=","--stat","--patch","--unified=3",commitSha])).stdout.slice(0,300000);}

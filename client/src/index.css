@@ -130,3 +130,47 @@
 .activity-copy>small{display:block;margin-top:4px;color:#999a8e;font-size:9px;overflow-wrap:anywhere}
 .activity-item>time{color:#999a8e;font-size:9px;text-align:right}
 @media(max-width:620px){.activity-item{grid-template-columns:30px minmax(0,1fr);align-items:start}.activity-item>time{grid-column:2;text-align:left}}
+
+
+/* Interactive commit DAG and historical snapshot navigation */
+.commit-graph-scroll{max-height:720px;overflow:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.commit-graph-grid{display:grid;align-items:stretch;min-width:0}
+.commit-graph-svg{display:block;overflow:visible;background:#fbfaf6}
+.graph-edge{fill:none;stroke:#a8b18c;stroke-width:2.2;stroke-linecap:round}
+.graph-edge.merge{stroke:#b59b75;stroke-dasharray:4 3}
+.graph-node{fill:#7b8d3e;stroke:#fbfaf6;stroke-width:2}
+.graph-node.selected{fill:#35421c;stroke:#c6d49a;stroke-width:3}
+.commit-graph-rows{min-width:0}
+.graph-commit{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:7px 12px;border:0;border-bottom:1px solid #f0ede5;background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.graph-commit:hover{background:#f8f7f0}
+.graph-commit.selected{background:#f1f4e6;box-shadow:inset 3px 0 #788c39}
+.graph-commit-main{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.graph-commit-main>b{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.graph-commit-main>small{font-size:8.5px;color:#96978b}
+.graph-commit-meta{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.graph-commit-meta>code{font:9px ui-monospace,monospace;color:#85867a}
+.graph-ref{display:inline-flex;align-items:center;gap:3px;padding:3px 6px;border-radius:5px;font-size:8px;white-space:nowrap}
+.graph-ref.branch{background:#edf2df;color:#60742b}
+.graph-ref.tag{background:#f2e9dc;color:#896844}
+.selected-commit-meta{display:flex;align-items:center;gap:12px 18px;flex-wrap:wrap;padding:4px 0 12px;color:var(--muted);font-size:9px}
+.selected-commit-meta>span{display:inline-flex;align-items:center;gap:5px}
+.selected-commit-meta>code{font:9px ui-monospace,monospace;overflow-wrap:anywhere}
+.graph-navigation{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.graph-navigation>div{display:flex;flex-direction:column;align-items:flex-start;gap:7px;min-width:0}
+.graph-navigation>div>small{font-size:8px;font-weight:800;letter-spacing:.07em;color:#96978b}
+.graph-navigation .text-link{white-space:normal;text-align:left;overflow-wrap:anywhere}
+.graph-commit-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 0}
+.graph-diff{max-height:420px}
+.graph-toolbar{flex-wrap:wrap}
+.compare-form{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto;align-items:end;gap:10px;padding:13px;margin-bottom:12px;border:1px solid var(--line);border-radius:9px;background:#faf9f3}
+.compare-form>svg{margin-bottom:9px;color:var(--muted)}
+.snapshot-banner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;margin-bottom:10px;border:1px solid #dfe7c7;border-radius:8px;background:#f5f7ec;color:#61742c;font-size:9px}
+.snapshot-banner>span{flex:1;min-width:0}
+.snapshot-banner code{font:9px ui-monospace,monospace}
+@media(max-width:760px){
+ .graph-navigation{grid-template-columns:1fr}
+ .graph-commit{align-items:flex-start;flex-direction:column;justify-content:center;gap:5px}
+ .graph-commit-meta{justify-content:flex-start}
+ .compare-form{grid-template-columns:1fr}
+ .compare-form>svg{display:none}
+}

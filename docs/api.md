@@ -40,6 +40,7 @@ File-commit body: `{ branch, path, content, message }`. Branch-create body: `{ n
 
 | Method | Endpoint | Access |
 |---|---|---|
+| GET | `/issues?status=open&priority=high&scope=assigned&search=term&page=1&limit=20` | Signed in; owned and accepted-collaborator repositories only |
 | GET | `/repositories/:id/issues?status=open` | Repository reader |
 | POST | `/repositories/:id/issues` | Owner/maintainer/developer |
 | GET | `/issues/:issueId` | Repository reader |

@@ -29,7 +29,8 @@ function arrangeCommitGraph(commits){
  const laneCount=Math.max(1,laneHeads.length,...nodes.map(node=>node.lane+1));
  return {nodes,edges,laneCount,width:laneCount*24+20,height:Math.max(1,commits.length)*56};
 }
-\nfunction Mark(){return <span className="mark"><GitBranch size={18}/></span>}
+
+function Mark(){return <span className="mark"><GitBranch size={18}/></span>}
 function Spin(){return <span className="spinner"/>}
 function Btn({children,...props}){return <button className="btn dark" {...props}>{children}</button>}
 function Empty({title,body,action,onAction}){return <div className="empty"><FolderGit2 size={24}/><h3>{title}</h3><p>{body}</p>{action&&<button className="btn lime" onClick={onAction}>{action}<ArrowRight size={14}/></button>}</div>}

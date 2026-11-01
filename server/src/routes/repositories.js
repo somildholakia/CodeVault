@@ -10,7 +10,7 @@ import Activity from "../models/Activity.js";
 import Release from "../models/Release.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
-import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,withRepositoryLock} from "../services/git.js";
+import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,uid){if(repo.owner._id.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -102,6 +102,21 @@ router.get("/:id/compare",asyncHandler(async(req,res)=>{
 }));
 router.get("/:id/files",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const ref=String(req.query.ref||repo.defaultBranch);res.json({files:await listFiles(repo._id,ref),ref});}));
 router.get("/:id/files/content",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json(await readFile(repo._id,String(req.query.ref||repo.defaultBranch),String(req.query.path||"")));}));
+router.get("/:id/files/history",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const ref=String(req.query.ref||repo.defaultBranch);
+ const file=String(req.query.path||"");
+ const limit=Math.min(100,Math.max(1,Number(req.query.limit)||50));
+ res.json({history:await fileHistory(repo._id,ref,file,limit),ref,path:file});
+}));
+router.get("/:id/files/blame",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const ref=String(req.query.ref||repo.defaultBranch);
+ const file=String(req.query.path||"");
+ res.json(await fileBlame(repo._id,ref,file));
+}));
 router.get("/:id/commits",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({commits:await listCommits(repo._id,String(req.query.ref||repo.defaultBranch),Number(req.query.limit)||50)});}));
 router.post("/:id/revert",asyncHandler(async(req,res)=>{
  requireDurableStorage();
@@ -121,6 +136,16 @@ router.post("/:id/revert",asyncHandler(async(req,res)=>{
 router.get("/:id/commits/:sha/diff",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({diff:await diffCommit(repo._id,req.params.sha)});}));
 router.get("/:id/branches",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({branches:await listBranches(repo._id)});}));
 router.post("/:id/branches",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({name:z.string().trim().min(1).max(120),base:z.string().trim().min(1).max(160).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a valid branch and base ref.");const branch=await withRepositoryLock(repo._id,()=>createBranch(repo._id,p.data.name,p.data.base||repo.defaultBranch));await event(req.user._id,repo,"branch.created","branch",branch.name,"Created branch "+branch.name+".",branch.name);res.status(201).json({branch});}));
+router.delete("/:id/branches/:name",asyncHandler(async(req,res)=>{
+ requireDurableStorage();
+ const repo=await getRepo(req.params.id);
+ assertWrite(await roleFor(repo,req.user._id));
+ const p=z.object({expectedHead:z.string().regex(/^[a-f0-9]{40}$/i)}).strict().safeParse(req.body);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Refresh the branch list and provide its current head SHA.");
+ const result=await withRepositoryLock(repo._id,()=>deleteBranch(repo._id,req.params.name,repo.defaultBranch,p.data.expectedHead));
+ await event(req.user._id,repo,"branch.deleted","branch",result.name,"Deleted merged branch "+result.name+".",result.name);
+ res.json({deleted:true,branch:result.name,deletedHead:result.deletedHead});
+}));
 router.post("/:id/merge-preview",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose source and target branches.");res.json(await previewMerge(repo._id,p.data.source,p.data.target));}));
 router.post("/:id/merge",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose valid source and target branches.");const result=await withRepositoryLock(repo._id,()=>mergeBranches(repo._id,p.data.source,p.data.target,p.data.expectedHead));await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Merged "+p.data.source+" into "+p.data.target+".",p.data.source);res.json({merged:true,result});}));
 router.post("/:id/commits",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({branch:z.string().min(1).max(160),path:z.string().min(1).max(500),content:z.string().max(1048576),message:z.string().trim().min(3).max(180)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Branch, path, content or commit message is invalid.");const commit=await withRepositoryLock(repo._id,()=>commitFile(repo._id,p.data.branch,p.data.path,p.data.content,p.data.message,req.user));await event(req.user._id,repo,"commit.created","repository",repo.name,"Committed "+p.data.path+" to "+p.data.branch+".",commit.sha);res.status(201).json({commit});}));

@@ -2,11 +2,12 @@ function idOf(value){return String(value?._id??value??"");}
 
 export function branchPatternMatches(pattern, branch) {
   if (typeof pattern !== "string" || typeof branch !== "string" || !pattern || !branch) return false;
+  const meta = new Set([".", "+", "(", ")", "{", "}", "[", "]", "^", "$", "|", String.fromCharCode(92)]);
   let expression = "^";
   for (const char of pattern) {
     if (char === "*") expression += ".*";
     else if (char === "?") expression += ".";
-    else expression += ".+?^${}()|[]\\\\\".includes(char) ? "\\\\" + char : char;
+    else expression += (meta.has(char) ? String.fromCharCode(92) : "") + char;
   }
   expression += "$";
   try { return new RegExp(expression).test(branch); } catch { return false; }

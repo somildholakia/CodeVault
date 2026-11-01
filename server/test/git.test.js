@@ -105,3 +105,40 @@ test("compares two commits and rejects identical or invalid refs",async()=>{
  await assert.rejects(()=>git.compareCommits(id,base.sha,base.sha),e=>e.code==="SAME_COMMIT");
  await assert.rejects(()=>git.compareCommits(id,"missing","main"),e=>e.code==="GIT_OPERATION_FAILED");
 });
+
+test("reverts a normal commit by adding a new inverse commit without rewriting history",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const before=(await git.listCommits(id,"main",1))[0];
+ const created=await git.commitFile(id,"main","src/revert-me.js","export const temporary = true;","Add temporary feature",author);
+ const result=await git.revertCommit(id,"main",created.sha,(await git.listBranches(id)).find(item=>item.name==="main").sha,author);
+ assert.equal(result.revertedCommit,created.sha);
+ assert.notEqual(result.revertCommit,created.sha);
+ assert.equal((await git.readFile(id,"main","src/revert-me.js").catch(error=>error.code)), "GIT_OPERATION_FAILED");
+ const history=await git.listCommits(id,"main",5);
+ assert.equal(history[0].sha,result.revertCommit);
+ assert.match(history[0].message,/Revert/);
+ assert.ok(history.some(item=>item.sha===created.sha));
+ assert.ok(history.some(item=>item.sha===before.sha));
+});
+
+test("rejects stale, unrelated, root and malformed commit reverts",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const initial=(await git.listCommits(id,"main",1))[0];
+ await git.createBranch(id,"feature/unrelated","main");
+ const side=await git.commitFile(id,"feature/unrelated","side.js","export const side = true;","Add side branch commit",author);
+ const next=await git.commitFile(id,"main","main.js","export const main = true;","Add main branch commit",author);
+ await assert.rejects(()=>git.revertCommit(id,"main",next.sha,initial.sha,author),e=>e.code==="BRANCH_MOVED");
+ await assert.rejects(()=>git.revertCommit(id,"main",side.sha,(await git.listBranches(id)).find(item=>item.name==="main").sha,author),e=>e.code==="COMMIT_NOT_ON_BRANCH");
+ await assert.rejects(()=>git.revertCommit(id,"main",initial.sha,(await git.listBranches(id)).find(item=>item.name==="main").sha,author),e=>e.code==="ROOT_COMMIT_REVERT_UNSUPPORTED");
+ await assert.rejects(()=>git.revertCommit(id,"main","bad",(await git.listBranches(id)).find(item=>item.name==="main").sha,author),e=>e.code==="INVALID_COMMIT");
+});
+
+test("validates changed-line review anchors in a branch diff",()=>{
+ const diff="diff --git a/src/file.js b/src/file.js\\n--- a/src/file.js\\n+++ b/src/file.js\\n@@ -2,1 +2,2 @@\\n-old line\\n+new line\\n+second new line\\n";
+ assert.equal(git.isAddedDiffLine(diff,"src/file.js",2),true);
+ assert.equal(git.isAddedDiffLine(diff,"src/file.js",3),true);
+ assert.equal(git.isAddedDiffLine(diff,"src/file.js",1),false);
+ assert.equal(git.isAddedDiffLine(diff,"other.js",2),false);
+});

@@ -51,3 +51,24 @@ test("caps code search results and rejects invalid search input or refs",async()
  await assert.rejects(()=>git.searchCode(id,"","main"),e=>e.code==="INVALID_SEARCH_QUERY");
  await assert.rejects(()=>git.searchCode(id,"needle","../main"),e=>e.code==="INVALID_GIT_REF");
 });
+
+test("publishes annotated release tags against the selected Git branch",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"release/stable","main");
+ await git.commitFile(id,"release/stable","src/release.js","export const releaseReady = true;","Prepare stable release",author);
+ const created=await git.createTag(id,"v1.0.0","release/stable","CodeVault 1.0.0",{...author});
+ assert.match(created.commitSha,/^[a-f0-9]{40}$/);
+ const tags=await git.listTags(id);
+ assert.equal(tags.length,1);
+ assert.equal(tags[0].name,"v1.0.0");
+ assert.equal(tags[0].commitSha,created.commitSha);
+ assert.equal(tags[0].subject,"CodeVault 1.0.0");
+ await assert.rejects(()=>git.createTag(id,"v1.0.0","main","Duplicate release",{...author}),e=>e.code==="GIT_REF_EXISTS");
+});
+
+test("rejects invalid release targets and tag names",async()=>{
+ const id=await makeRepo();
+ await assert.rejects(()=>git.createTag(id,"../v1","main","Invalid tag"),e=>e.code==="INVALID_GIT_REF");
+ await assert.rejects(()=>git.createTag(id,"v1.0.0","missing-branch","Invalid target"),e=>e.code==="GIT_OPERATION_FAILED");
+});

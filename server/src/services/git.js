@@ -40,7 +40,7 @@ export async function searchCode(id, query, ref = "main", limit = 100) {
   let truncated = false;
   try {
     const result = await execFileAsync("git", [
-      "grep", "--no-color", "-n", "-I", "-F", "--max-count=5", "-e", term, revision, "--"
+      "grep", "--no-color", "-n", "-I", "-F", "-e", term, revision, "--"
     ], {
       cwd: root,
       timeout: 20000,
@@ -72,10 +72,8 @@ export async function searchCode(id, query, ref = "main", limit = 100) {
       line,
       snippet: row.slice(second + 1).slice(0, 500)
     });
-    if (results.length >= maxResults) {
-      truncated = true;
-      break;
-    }
   }
-  return {query: term, ref: revision, results, truncated};
+  truncated = truncated || results.length > maxResults;
+  const limitedResults = results.slice(0, maxResults);
+  return {query: term, ref: revision, results: limitedResults, truncated};
 }

@@ -129,14 +129,23 @@ test("rejects stale, unrelated, root and malformed commit reverts",async()=>{
  await git.createBranch(id,"feature/unrelated","main");
  const side=await git.commitFile(id,"feature/unrelated","side.js","export const side = true;","Add side branch commit",author);
  const next=await git.commitFile(id,"main","main.js","export const main = true;","Add main branch commit",author);
+ const mainHead=(await git.listBranches(id)).find(item=>item.name==="main").sha;
  await assert.rejects(()=>git.revertCommit(id,"main",next.sha,initial.sha,author),e=>e.code==="BRANCH_MOVED");
- await assert.rejects(()=>git.revertCommit(id,"main",side.sha,(await git.listBranches(id)).find(item=>item.name==="main").sha,author),e=>e.code==="COMMIT_NOT_ON_BRANCH");
- await assert.rejects(()=>git.revertCommit(id,"main",initial.sha,(await git.listBranches(id)).find(item=>item.name==="main").sha,author),e=>e.code==="ROOT_COMMIT_REVERT_UNSUPPORTED");
- await assert.rejects(()=>git.revertCommit(id,"main","bad",(await git.listBranches(id)).find(item=>item.name==="main").sha,author),e=>e.code==="INVALID_COMMIT");
+ await assert.rejects(()=>git.revertCommit(id,"main",side.sha,mainHead,author),e=>e.code==="COMMIT_NOT_ON_BRANCH");
+ await assert.rejects(()=>git.revertCommit(id,"main",initial.sha,mainHead,author),e=>e.code==="ROOT_COMMIT_REVERT_UNSUPPORTED");
+ await assert.rejects(()=>git.revertCommit(id,"main","bad",mainHead,author),e=>e.code==="INVALID_COMMIT");
 });
 
 test("validates changed-line review anchors in a branch diff",()=>{
- const diff="diff --git a/src/file.js b/src/file.js\\n--- a/src/file.js\\n+++ b/src/file.js\\n@@ -2,1 +2,2 @@\\n-old line\\n+new line\\n+second new line\\n";
+ const diff=[
+  "diff --git a/src/file.js b/src/file.js",
+  "--- a/src/file.js",
+  "+++ b/src/file.js",
+  "@@ -2,1 +2,2 @@",
+  "-old line",
+  "+new line",
+  "+second new line"
+ ].join(String.fromCharCode(10));
  assert.equal(git.isAddedDiffLine(diff,"src/file.js",2),true);
  assert.equal(git.isAddedDiffLine(diff,"src/file.js",3),true);
  assert.equal(git.isAddedDiffLine(diff,"src/file.js",1),false);

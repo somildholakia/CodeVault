@@ -12,6 +12,7 @@ import BranchProtection from "../models/BranchProtection.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
 import {selectBranchProtection} from "../services/pullRequestPolicy.js";
+import {scanDependencies} from "../services/dependencyScanner.js";
 import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,getContributionStats,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
@@ -102,6 +103,13 @@ router.get("/:id/compare",asyncHandler(async(req,res)=>{
  const p=z.object({base:z.string().trim().min(1).max(160),target:z.string().trim().min(1).max(160)}).safeParse(req.query);
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose two commit refs to compare.",p.error.flatten());
  res.json(await compareCommits(repo._id,p.data.base,p.data.target));
+}));
+router.get("/:id/dependencies",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const ref=String(req.query.ref||repo.defaultBranch);
+ const report=await scanDependencies(repo._id,ref);
+ res.json({report});
 }));
 router.get("/:id/insights",asyncHandler(async(req,res)=>{
  const repo=await getRepo(req.params.id);

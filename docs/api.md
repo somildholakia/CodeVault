@@ -26,12 +26,15 @@ Registration body: `{ username, displayName, email, password }`. Passwords are b
 | GET | `/repositories/:id/releases` | Repository reader; includes published releases and Git tags |
 | POST | `/repositories/:id/releases` | Owner/maintainer; requires durable Git storage in production |
 | GET | `/repositories/:id/files/content?ref=main&path=README.md` | Repository reader |
+| GET | `/repositories/:id/files/history?ref=main&path=README.md&limit=50` | Repository reader; follows file renames |
+| GET | `/repositories/:id/files/blame?ref=main&path=README.md` | Repository reader; line-level commit attribution |
 | GET | `/repositories/:id/commits?ref=main&limit=50` | Repository reader |
 | GET | `/repositories/:id/graph?ref=all&limit=100` | Repository reader; returns commit DAG, parents, branches and tags |
 | GET | `/repositories/:id/compare?base=SHA&target=SHA` | Repository reader; compares two Git commits |
 | GET | `/repositories/:id/commits/:sha/diff` | Repository reader |
 | GET | `/repositories/:id/branches` | Repository reader |
 | POST | `/repositories/:id/branches` | Owner/maintainer/developer |
+| DELETE | `/repositories/:id/branches` | Owner/maintainer/developer; protects default and unmerged branches |
 | POST | `/repositories/:id/commits` | Owner/maintainer/developer |
 | POST | `/repositories/:id/revert` | Owner/maintainer/developer; requires durable Git storage |
 | POST | `/repositories/:id/merge-preview` | Repository reader |
@@ -40,7 +43,7 @@ Registration body: `{ username, displayName, email, password }`. Passwords are b
 | GET | `/repositories/:id/collaborators` | Repository reader |
 | DELETE | `/repositories/:id` | Owner only; exact-name confirmation |
 
-File-commit body: `{ branch, path, content, message }`. Branch-create body: `{ name, base? }`. The graph endpoint accepts `ref=all` or a branch name and `limit=1–200`. Commit comparison accepts two existing commit SHAs or refs in `base` and `target`. Merge body: `{ source, target, expectedHead? }`. Safe revert body: `{ branch, commitSha, expectedHead }`; this creates a new inverse commit, rejects stale branch heads, unrelated commits, merge commits and dirty worktrees, and does not rewrite history. Code search uses a fixed-string query (`q`, 1–100 characters), an optional Git ref and a result limit of 1–200; binary files and uncommitted working files are excluded. Release publishing body: `{ name, tagName, notes, targetBranch }`; publishing creates an annotated Git tag and persists release metadata.
+File-commit body: `{ branch, path, content, message }`. Branch-create body: `{ name, base? }`; `base` accepts a branch, tag or full commit SHA. Safe branch deletion body: `{ name, expectedHead }`; CodeVault checks the expected branch head, switches the repository worktree to the protected default branch, and uses non-forced Git branch deletion so unmerged work is preserved. Per-file history and blame use the selected ref and repository-relative path. The graph endpoint accepts `ref=all` or a branch name and `limit=1–200`. Commit comparison accepts two existing commit SHAs or refs in `base` and `target`. Merge body: `{ source, target, expectedHead? }`. Safe revert body: `{ branch, commitSha, expectedHead }`; this creates a new inverse commit, rejects stale branch heads, unrelated commits, merge commits and dirty worktrees, and does not rewrite history. Code search uses a fixed-string query (`q`, 1–100 characters), an optional Git ref and a result limit of 1–200; binary files and uncommitted working files are excluded. Release publishing body: `{ name, tagName, notes, targetBranch }`; publishing creates an annotated Git tag and persists release metadata.
 
 ## Issues
 

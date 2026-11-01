@@ -6,7 +6,7 @@ export function branchPatternMatches(pattern, branch) {
   for (const char of pattern) {
     if (char === "*") expression += ".*";
     else if (char === "?") expression += ".";
-    else expression += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+    else expression += ".+?^${}()|[]\\\\\".includes(char) ? "\\\\" + char : char;
   }
   expression += "$";
   try { return new RegExp(expression).test(branch); } catch { return false; }

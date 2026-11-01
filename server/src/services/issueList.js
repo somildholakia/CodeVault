@@ -11,7 +11,9 @@ export function buildIssueListFilter({repositoryIds, status = "open", priority, 
 
   const term = String(search || "").trim().slice(0, 100);
   if (term) {
-    const escaped = term.split("").map(char => "\\^$.*+?()[]{}|".includes(char) ? "\\\\" + char : char).join("");
+    const slash = String.fromCharCode(92);
+    const meta = new Set([slash,".", "*", "+", "?", "^", "$", "(", ")", "[", "]", "{", "}", "|"]);
+    const escaped = term.split("").map(char => meta.has(char) ? slash + char : char).join("");
     const expression = new RegExp(escaped, "i");
     filter.$or = [{title: expression}, {description: expression}, {labels: expression}];
   }

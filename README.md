@@ -26,6 +26,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Create branches from any selected commit; delete only merged branches while protecting the default branch.
 - Per-file history (including rename following) and line-level Git blame for any selected ref.
 - Inline pull-request review threads anchored to changed lines, with resolve/reopen controls.
+- Three-way merge conflict editor with base/target/source panes, manual resolution, stale-head checks and isolated merge commits.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
 - Activity history, Git-derived analytics and a short Git Learning Mode.

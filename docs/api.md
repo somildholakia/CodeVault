@@ -33,13 +33,14 @@ Registration body: `{ username, displayName, email, password }`. Passwords are b
 | GET | `/repositories/:id/branches` | Repository reader |
 | POST | `/repositories/:id/branches` | Owner/maintainer/developer |
 | POST | `/repositories/:id/commits` | Owner/maintainer/developer |
+| POST | `/repositories/:id/revert` | Owner/maintainer/developer; requires durable Git storage |
 | POST | `/repositories/:id/merge-preview` | Repository reader |
 | POST | `/repositories/:id/merge` | Owner/maintainer |
 | POST | `/repositories/:id/collaborators` | Owner/maintainer |
 | GET | `/repositories/:id/collaborators` | Repository reader |
 | DELETE | `/repositories/:id` | Owner only; exact-name confirmation |
 
-File-commit body: `{ branch, path, content, message }`. Branch-create body: `{ name, base? }`. The graph endpoint accepts `ref=all` or a branch name and `limit=1–200`. Commit comparison accepts two existing commit SHAs or refs in `base` and `target`. Merge body: `{ source, target, expectedHead? }`. Code search uses a fixed-string query (`q`, 1–100 characters), an optional Git ref and a result limit of 1–200; binary files and uncommitted working files are excluded. Release publishing body: `{ name, tagName, notes, targetBranch }`; publishing creates an annotated Git tag and persists release metadata.
+File-commit body: `{ branch, path, content, message }`. Branch-create body: `{ name, base? }`. The graph endpoint accepts `ref=all` or a branch name and `limit=1–200`. Commit comparison accepts two existing commit SHAs or refs in `base` and `target`. Merge body: `{ source, target, expectedHead? }`. Safe revert body: `{ branch, commitSha, expectedHead }`; this creates a new inverse commit, rejects stale branch heads, unrelated commits, merge commits and dirty worktrees, and does not rewrite history. Code search uses a fixed-string query (`q`, 1–100 characters), an optional Git ref and a result limit of 1–200; binary files and uncommitted working files are excluded. Release publishing body: `{ name, tagName, notes, targetBranch }`; publishing creates an annotated Git tag and persists release metadata.
 
 ## Issues
 
@@ -61,11 +62,14 @@ Issue status is `open` or `closed`; priority is low, medium, high or critical.
 | GET | `/pull-requests` | Signed in; lists pull requests in accessible repositories |
 | POST | `/pull-requests` | Owner/maintainer/developer |
 | GET | `/pull-requests/:id` | Repository reader |
+| GET | `/pull-requests/:id/diff` | Repository reader; current source-to-target diff |
+| POST | `/pull-requests/:id/comments` | Accepted repository member; added lines only |
+| PATCH | `/pull-requests/:id/comments/:commentId` | Comment author, owner or maintainer; resolve/reopen |
 | POST | `/pull-requests/:id/reviews` | Repository reader other than the PR author |
 | POST | `/pull-requests/:id/close` | PR author, owner or maintainer |
 | POST | `/pull-requests/:id/merge` | Owner/maintainer, with independent approval and no outstanding change request |
 
-Create body: `{ repositoryId, title, description, sourceBranch, targetBranch }`. Review body: `{ decision, body }`, where decision is `approved`, `changes_requested` or `commented`. A PR cannot merge until at least one non-author collaborator approves it; any outstanding `changes_requested` review blocks merge. Merge also runs native Git conflict detection.
+Create body: `{ repositoryId, title, description, sourceBranch, targetBranch }`. Review body: `{ decision, body }`, where decision is `approved`, `changes_requested` or `commented`. Inline comment body: `{ path, line, side: "RIGHT", commitSha, body }`; comments must point to an added line in the current diff. Thread resolution body: `{ resolved: true|false }`. A PR cannot merge until at least one non-author collaborator approves it; any outstanding `changes_requested` review blocks merge. Merge also runs native Git conflict detection.
 
 ## Analytics and activity
 

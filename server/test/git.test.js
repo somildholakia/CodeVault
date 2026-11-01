@@ -253,3 +253,20 @@ test("rejects a merge resolution when either branch moved after the preview",asy
   error=>error.code==="BRANCH_MOVED"
  );
 });
+
+test("computes real contribution heatmap, author rankings and file activity from Git history",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Analytics Author",email:"analytics@codevault.local"};
+ await git.commitFile(id,"main","src/analytics.js","export const first = true;\\n","Add analytics file",author);
+ await git.commitFile(id,"main","src/analytics.js","export const first = true;\\nexport const second = true;\\n","Extend analytics file",author);
+ const stats=await git.getContributionStats(id,"all",30);
+ assert.equal(stats.windowDays,30);
+ assert.equal(stats.totalCommits,2);
+ assert.equal(stats.contributorCount,1);
+ assert.equal(stats.authors[0].name,"Analytics Author");
+ assert.equal(stats.authors[0].commits,2);
+ assert.equal(stats.daily.length,30);
+ assert.equal(stats.daily.reduce((sum,item)=>sum+item.commits,0),2);
+ assert.ok(stats.additions>=2);
+ assert.ok(stats.hotFiles.some(file=>file.path==="src/analytics.js"));
+});

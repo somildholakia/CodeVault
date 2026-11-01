@@ -235,8 +235,18 @@ export async function deleteBranch(id, name, defaultBranch, expectedHead) {
   const root = repositoryPath(id);
   const current = (await git(root, ["rev-parse", "--verify", "refs/heads/" + branch])).stdout.trim();
   if (current !== expectedHead) throw new AppError(409, "BRANCH_MOVED", "The branch changed since it was loaded. Refresh and try again.");
+  // Move the repository worktree to its protected branch before deletion.
+  await git(root, ["checkout", "--quiet", protectedDefault]);
   // -d is deliberately used rather than -D: Git refuses to remove unmerged work.
-  await git(root, ["branch", "-d", "--", branch]);
+  try {
+    await git(root, ["branch", "-d", "--", branch]);
+  } catch (error) {
+    const message = String(error.message || "").toLowerCase();
+    if (message.includes("not fully merged")) {
+      throw new AppError(409, "BRANCH_NOT_MERGED", "This branch contains commits that are not merged into the default branch.");
+    }
+    throw error;
+  }
   return {name: branch, deletedHead: current};
 }
 

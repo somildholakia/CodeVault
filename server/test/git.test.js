@@ -352,7 +352,7 @@ test("extracts only exact pinned Python requirements and normalizes package name
   "unpinned>=1.0",
   "editable-package @ git+https://example.com/repo.git",
   "Flask==3.0.0 # pinned"
- ].join("\\n"));
+ ].join("\n"));
  assert.equal(entries.length,2);
  assert.ok(entries.some(item=>item.name==="requests"&&item.version==="2.31.0"&&item.ecosystem==="PyPI"));
  assert.ok(entries.some(item=>item.name==="flask"&&item.version==="3.0.0"));
@@ -360,7 +360,7 @@ test("extracts only exact pinned Python requirements and normalizes package name
 
 test("scans pinned Python requirements through OSV without treating ranges as exact versions",async()=>{
  const id=await makeRepo();
- await git.commitFile(id,"main","requirements.txt","requests==2.31.0\\nflask>=3.0\\n","Add Python requirements",{username:"testuser",displayName:"Test User",email:"test@codevault.local"});
+ await git.commitFile(id,"main","requirements.txt","requests==2.31.0\nflask>=3.0\n","Add Python requirements",{username:"testuser",displayName:"Test User",email:"test@codevault.local"});
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(url,options={})=>{
   if(String(url).endsWith("/v1/querybatch")){

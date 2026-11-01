@@ -118,3 +118,15 @@
 .tag-row b{color:var(--ink);font-size:10px;overflow-wrap:anywhere}
 .tag-row code{font:9px ui-monospace,monospace;color:#85867a}
 .tag-row small{grid-column:2/-1;color:#999a8e;font-size:9px}
+
+
+/* Workspace activity timeline */
+.activity-list{display:flex;flex-direction:column}
+.activity-item{display:grid;grid-template-columns:31px minmax(0,1fr) max-content;align-items:center;gap:11px;padding:13px 0;border-bottom:1px solid #f0ede5}
+.activity-item:last-child{border-bottom:0}
+.activity-symbol{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;background:#f1f0e9;color:#74766a}
+.activity-copy{min-width:0}
+.activity-copy>p{margin:0;color:var(--ink);font-size:10.5px;line-height:1.55}
+.activity-copy>small{display:block;margin-top:4px;color:#999a8e;font-size:9px;overflow-wrap:anywhere}
+.activity-item>time{color:#999a8e;font-size:9px;text-align:right}
+@media(max-width:620px){.activity-item{grid-template-columns:30px minmax(0,1fr);align-items:start}.activity-item>time{grid-column:2;text-align:left}}

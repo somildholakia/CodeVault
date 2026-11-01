@@ -343,3 +343,39 @@ test("extracts deduplicated resolved npm dependencies from lockfile layouts",()=
  assert.ok(entries.some(item=>item.name==="demo-a"&&item.version==="1.0.0"));
  assert.ok(entries.some(item=>item.name==="demo-b"&&item.version==="2.0.0"));
 });
+
+test("extracts only exact pinned Python requirements and normalizes package names",()=>{
+ const entries=dependencyScanner.extractPythonRequirements([
+  "# production dependencies",
+  "Requests==2.31.0",
+  "my_package==1.2.3 ; python_version >= '3.10'",
+  "unpinned>=1.0",
+  "editable-package @ git+https://example.com/repo.git",
+  "Flask==3.0.0 # pinned"
+ ].join("\\n"));
+ assert.equal(entries.length,2);
+ assert.ok(entries.some(item=>item.name==="requests"&&item.version==="2.31.0"&&item.ecosystem==="PyPI"));
+ assert.ok(entries.some(item=>item.name==="flask"&&item.version==="3.0.0"));
+});
+
+test("scans pinned Python requirements through OSV without treating ranges as exact versions",async()=>{
+ const id=await makeRepo();
+ await git.commitFile(id,"main","requirements.txt","requests==2.31.0\\nflask>=3.0\\n","Add Python requirements",{username:"testuser",displayName:"Test User",email:"test@codevault.local"});
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(url,options={})=>{
+  if(String(url).endsWith("/v1/querybatch")){
+   const body=JSON.parse(options.body);
+   assert.equal(body.queries.length,1);
+   assert.deepEqual(body.queries[0],{package:{name:"requests",ecosystem:"PyPI"},version:"2.31.0"});
+   return {ok:true,json:async()=>({results:[{}]})};
+  }
+  throw new Error("Unexpected OSV detail request");
+ };
+ try{
+  const report=await dependencyScanner.scanDependencies(id,"main");
+  assert.equal(report.status,"scanned");
+  assert.equal(report.packageCount,1);
+  assert.deepEqual(report.ecosystems,["PyPI"]);
+  assert.deepEqual(report.requirementsFiles,["requirements.txt"]);
+ }finally{globalThis.fetch=originalFetch;}
+});

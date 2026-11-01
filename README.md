@@ -23,6 +23,8 @@ A version-control and collaboration workspace for student development teams. Cod
 - Release publishing with annotated Git tags, version notes and tag history.
 - Interactive commit DAG across branches, with parent/child navigation, read-only historical snapshots and commit-to-commit diffs.
 - Safe commit revert that appends an inverse commit without rewriting branch history.
+- Create branches from any selected commit; delete only merged branches while protecting the default branch.
+- Per-file history (including rename following) and line-level Git blame for any selected ref.
 - Inline pull-request review threads anchored to changed lines, with resolve/reopen controls.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.

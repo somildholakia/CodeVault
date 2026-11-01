@@ -163,7 +163,7 @@ export function extractPythonRequirements(text, source = "requirements.txt") {
   const found = new Map();
   for (const raw of String(text || "").split(/\r?\n/)) {
     const line = raw.trim();
-    if (!line || line.startsWith("#") || line.startsWith("-") || line.startsWith("git+") || line.startsWith("http:") || line.startsWith("https:")) continue;
+    if (!line || line.startsWith("#") || line.startsWith("-") || line.startsWith("git+") || line.startsWith("http:") || line.startsWith("https:") || line.includes(";")) continue;
     const match = line.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)\s*==\s*([A-Za-z0-9][A-Za-z0-9.!+_-]*)\s*(?:#.*)?$/);
     if (!match) continue;
     const name = match[1].toLowerCase().replace(/[-_.]+/g, "-");

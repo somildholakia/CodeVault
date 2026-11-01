@@ -29,6 +29,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Three-way merge conflict editor with base/target/source panes, manual resolution, stale-head checks and isolated merge commits.
 - Branch protection rules with wildcard patterns, pull-request requirements, approval thresholds, stale-approval dismissal, resolved-thread gates and protected deletion.
 - Repository contribution heatmaps, author rankings and changed-file activity computed from actual Git history.
+- npm dependency inventory and lockfile-based OSV vulnerability scans, with explicit lockfile-required status when exact versions are unavailable.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
 - Activity history, Git-derived analytics and a short Git Learning Mode.

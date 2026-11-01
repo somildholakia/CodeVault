@@ -17,6 +17,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Public/private repository metadata and server-side owner/collaborator permission checks.
 - File browsing, in-browser text editing, commit creation, history and commit diffs.
 - Branch creation, merge preview, conflict detection and guarded native Git merge.
+- Repository-wide literal code search across committed text on any branch, with bounded results and permission checks.
 - Repository-scoped issues with status, priority, comments and collaborator assignment.
 - Workspace-wide issue inbox with safe text search, status/priority filters, personal scopes and pagination.
 - Collaborator roles: owner, maintainer, developer and viewer.
@@ -33,7 +34,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/test/` — real temporary Git repository and pull-request review-policy tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
-Releases/tags, source archives, notifications, full-text code search, inline review comments and an in-browser conflict editor remain future work.
+Releases/tags, source archives, notifications, inline review comments and an in-browser conflict editor remain future work.
 
 ## Local setup
 

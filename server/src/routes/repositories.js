@@ -136,13 +136,13 @@ router.post("/:id/revert",asyncHandler(async(req,res)=>{
 router.get("/:id/commits/:sha/diff",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({diff:await diffCommit(repo._id,req.params.sha)});}));
 router.get("/:id/branches",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({branches:await listBranches(repo._id)});}));
 router.post("/:id/branches",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({name:z.string().trim().min(1).max(120),base:z.string().trim().min(1).max(160).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a valid branch and base ref.");const branch=await withRepositoryLock(repo._id,()=>createBranch(repo._id,p.data.name,p.data.base||repo.defaultBranch));await event(req.user._id,repo,"branch.created","branch",branch.name,"Created branch "+branch.name+".",branch.name);res.status(201).json({branch});}));
-router.delete("/:id/branches/:name",asyncHandler(async(req,res)=>{
+router.delete("/:id/branches",asyncHandler(async(req,res)=>{
  requireDurableStorage();
  const repo=await getRepo(req.params.id);
  assertWrite(await roleFor(repo,req.user._id));
- const p=z.object({expectedHead:z.string().regex(/^[a-f0-9]{40}$/i)}).strict().safeParse(req.body);
- if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Refresh the branch list and provide its current head SHA.");
- const result=await withRepositoryLock(repo._id,()=>deleteBranch(repo._id,req.params.name,repo.defaultBranch,p.data.expectedHead));
+ const p=z.object({name:z.string().trim().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i)}).strict().safeParse(req.body);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a branch name and its current head SHA.");
+ const result=await withRepositoryLock(repo._id,()=>deleteBranch(repo._id,p.data.name,repo.defaultBranch,p.data.expectedHead));
  await event(req.user._id,repo,"branch.deleted","branch",result.name,"Deleted merged branch "+result.name+".",result.name);
  res.json({deleted:true,branch:result.name,deletedHead:result.deletedHead});
 }));

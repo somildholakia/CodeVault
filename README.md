@@ -70,3 +70,8 @@ Configure `MONGODB_URI`, `JWT_SECRET` and `CLIENT_ORIGIN` in Render. Set `REPO_S
 Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews and invalid path/ref rejection. Pull-request review-policy tests check independent approvals and change-request blocking. GitHub Actions runs the frontend production build and backend unit tests.
 
 The current Git service uses a shared worktree and an in-process repository lock. Multi-instance production operation needs isolated worktrees or a distributed lock. Backups, restore drills, rate/abuse limits and a security review are required before storing sensitive source code.
+
+
+### Dependency security scanning
+
+CodeVault can scan exact resolved versions from npm lockfiles and exact pinned Python requirements (`package==version`) against OSV. Unpinned ranges, environment-marker requirements, editable installs and VCS references are not treated as exact resolved versions. A missing lockfile or unsupported manifest is reported explicitly rather than described as vulnerability-free.

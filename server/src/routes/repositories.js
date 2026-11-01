@@ -10,7 +10,7 @@ import Activity from "../models/Activity.js";
 import Release from "../models/Release.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
-import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listTags,createTag,deleteTag,withRepositoryLock} from "../services/git.js";
+import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,listTags,createTag,deleteTag,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,uid){if(repo.owner._id.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -84,6 +84,21 @@ router.post("/:id/releases",asyncHandler(async(req,res)=>{
  }
  await event(req.user._id,repo,"release.published","release",release.name,"Published "+release.name+" ("+release.tagName+").",release._id);
  res.status(201).json({release:await Release.findById(release._id).populate("author","username displayName avatarUrl")});
+}));
+router.get("/:id/graph",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const p=z.object({ref:z.string().trim().min(1).max(160).optional().default("all"),limit:z.coerce.number().int().min(1).max(200).optional().default(100)}).safeParse(req.query);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Invalid commit graph options.",p.error.flatten());
+ const graph=await listCommitGraph(repo._id,p.data.ref,p.data.limit);
+ res.json(graph);
+}));
+router.get("/:id/compare",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const p=z.object({base:z.string().trim().min(1).max(160),target:z.string().trim().min(1).max(160)}).safeParse(req.query);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose two commit refs to compare.",p.error.flatten());
+ res.json(await compareCommits(repo._id,p.data.base,p.data.target));
 }));
 router.get("/:id/files",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const ref=String(req.query.ref||repo.defaultBranch);res.json({files:await listFiles(repo._id,ref),ref});}));
 router.get("/:id/files/content",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json(await readFile(repo._id,String(req.query.ref||repo.defaultBranch),String(req.query.path||"")));}));

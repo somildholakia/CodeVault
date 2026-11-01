@@ -27,6 +27,8 @@ A version-control and collaboration workspace for student development teams. Cod
 - Per-file history (including rename following) and line-level Git blame for any selected ref.
 - Inline pull-request review threads anchored to changed lines, with resolve/reopen controls.
 - Three-way merge conflict editor with base/target/source panes, manual resolution, stale-head checks and isolated merge commits.
+- Branch protection rules with wildcard patterns, pull-request requirements, approval thresholds, stale-approval dismissal, resolved-thread gates and protected deletion.
+- Repository contribution heatmaps, author rankings and changed-file activity computed from actual Git history.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
 - Activity history, Git-derived analytics and a short Git Learning Mode.
@@ -41,7 +43,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/test/` — real temporary Git repository and pull-request review-policy tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
-Source archives, notifications, inline review comments and an in-browser conflict editor remain future work.
+Source archives and external notifications remain future work. Dependency vulnerability scanning and multi-instance distributed Git locking still require additional production hardening.
 
 ## Local setup
 

@@ -8,7 +8,7 @@ export function extractNpmPackages(lock) {
   if (!lock || typeof lock !== "object") return [];
   const found = new Map();
   const add = (name, info, source) => {
-    if (!name || !info || typeof info.version !== "string" || !info.version) return;
+    if (!name || !info || info.link === true || typeof info.version !== "string" || !info.version || /^(file:|git\+|workspace:)/i.test(info.version)) return;
     const key = name + "@" + info.version;
     const current = found.get(key);
     if (current) {

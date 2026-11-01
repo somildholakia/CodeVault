@@ -16,3 +16,37 @@ test("rejects traversal and invalid refs",async()=>{const id=await makeRepo();aw
 test("merges a clean feature branch with native Git",async()=>{const id=await makeRepo();await git.createBranch(id,"feature/clean","main");await git.commitFile(id,"feature/clean","feature.js","export const ok = true;\\n","Add feature",{username:"testuser",displayName:"Test User",email:"test@codevault.local"});const head=(await git.listBranches(id)).find(b=>b.name==="main").sha;assert.equal((await git.previewMerge(id,"feature/clean","main")).canMerge,true);await git.mergeBranches(id,"feature/clean","main",head);assert.ok((await git.listCommits(id,"main")).some(c=>c.message==="Add feature"));});
 
 test("detects a conflicting merge without changing the target branch",async()=>{const id=await makeRepo();await git.createBranch(id,"feature/conflict","main");const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};await git.commitFile(id,"feature/conflict","README.md","# feature version\n","Change README on feature",author);await git.commitFile(id,"main","README.md","# main version\n","Change README on main",author);const before=(await git.listBranches(id)).find(b=>b.name==="main").sha;const preview=await git.previewMerge(id,"feature/conflict","main");assert.equal(preview.canMerge,false);const after=(await git.listBranches(id)).find(b=>b.name==="main").sha;assert.equal(after,before);});
+
+test("searches committed text for exact literal matches on a selected ref",async()=>{
+ const id=await makeRepo();
+ await git.commitFile(id,"main","src/search.js",'export const tokenPattern = "TOKEN.*";\\nexport const tokenLabel = "token.*";\\n',"Add search fixture",{username:"testuser",displayName:"Test User",email:"test@codevault.local"});
+ const result=await git.searchCode(id,"token.*","main");
+ assert.equal(result.query,"token.*");
+ assert.equal(result.ref,"main");
+ assert.equal(result.results.length,1);
+ assert.equal(result.results[0].path,"src/search.js");
+ assert.equal(result.results[0].line,2);
+ assert.match(result.results[0].snippet,/token\\.\\*/);
+ assert.equal(result.truncated,false);
+});
+
+test("searches only the selected branch and returns no-match results safely",async()=>{
+ const id=await makeRepo();
+ await git.createBranch(id,"feature/search","main");
+ await git.commitFile(id,"feature/search","src/feature.js","export const featureFlag = true;\\n","Add feature flag",{username:"testuser",displayName:"Test User",email:"test@codevault.local"});
+ assert.equal((await git.searchCode(id,"featureFlag","main")).results.length,0);
+ assert.equal((await git.searchCode(id,"featureFlag","feature/search")).results[0].path,"src/feature.js");
+ assert.deepEqual((await git.searchCode(id,"not-in-this-repo","main")).results,[]);
+});
+
+test("caps code search results and rejects invalid search input or refs",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.commitFile(id,"main","a.js","const needle = 1;\\n","Add first needle",{...author});
+ await git.commitFile(id,"main","b.js","const needle = 2;\\n","Add second needle",{...author});
+ const result=await git.searchCode(id,"needle","main",1);
+ assert.equal(result.results.length,1);
+ assert.equal(result.truncated,true);
+ await assert.rejects(()=>git.searchCode(id,"","main"),e=>e.code==="INVALID_SEARCH_QUERY");
+ await assert.rejects(()=>git.searchCode(id,"needle","../main"),e=>e.code==="INVALID_GIT_REF");
+});

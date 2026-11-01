@@ -5,16 +5,18 @@ import PullRequest from "../models/PullRequest.js";
 import Repository from "../models/Repository.js";
 import Collaborator from "../models/Collaborator.js";
 import Activity from "../models/Activity.js";
+import BranchProtection from "../models/BranchProtection.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
 import {listBranches,previewMerge,mergeBranches,listCommits,withRepositoryLock,diffBranches,isAddedDiffLine} from "../services/git.js";
-import {evaluateReviewGate} from "../services/pullRequestPolicy.js";
+import {evaluateReviewGate,selectBranchProtection} from "../services/pullRequestPolicy.js";
 const router=Router();router.use(requireAuth);
 async function findRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id);if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,userId){if(repo.owner.toString()===userId.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:userId,acceptedAt:{$ne:null}});return c?.role||null;}
 function assertRead(role,repo){if(!role&&repo.visibility!=="public")throw notFound("Repository not found.");}
 function assertWrite(role){if(!["owner","maintainer","developer"].includes(role))throw new AppError(403,"PERMISSION_DENIED","You do not have permission to create or update pull requests.");}
 function assertManage(role){if(!["owner","maintainer"].includes(role))throw new AppError(403,"PERMISSION_DENIED","Only the owner or a maintainer can merge pull requests.");}
+async function protectionForBranch(repo,branch){const rules=await BranchProtection.find({repository:repo._id}).lean();return selectBranchProtection(rules,branch);}
 async function loadPullRequest(id){if(!mongoose.isValidObjectId(id))throw notFound("Pull request not found.");const pr=await PullRequest.findById(id).populate("repository").populate("author","username displayName avatarUrl").populate("mergedBy","username displayName avatarUrl").populate("reviews.user","username displayName avatarUrl").populate("reviewThreads.author","username displayName avatarUrl").populate("reviewThreads.resolvedBy","username displayName avatarUrl");if(!pr||!pr.repository)throw notFound("Pull request not found.");return pr;}
 async function record(actor,pr,action,summary){await Activity.create({actor,repository:pr.repository._id,action,entityType:"pull_request",entityId:pr._id.toString(),entityName:pr.title,summary});}
 router.get("/",asyncHandler(async(req,res)=>{
@@ -52,9 +54,11 @@ router.post("/:id/reviews",asyncHandler(async(req,res)=>{
  if(pr.author._id.toString()===req.user._id.toString())throw new AppError(403,"SELF_REVIEW_NOT_ALLOWED","You cannot review your own pull request.");
  const p=z.object({decision:z.enum(["approved","changes_requested","commented"]),body:z.string().trim().max(5000).optional().default("")}).safeParse(req.body);
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Review decision or comment is invalid.");
+ const sourceBranch=(await listBranches(pr.repository._id)).find(item=>item.name===pr.sourceBranch);
+ if(!sourceBranch)throw new AppError(409,"SOURCE_BRANCH_MISSING","The pull-request source branch no longer exists.");
  const existing=pr.reviews.find(x=>x.user.toString()===req.user._id.toString());
- if(existing){existing.decision=p.data.decision;existing.body=p.data.body;existing.submittedAt=new Date();}
- else pr.reviews.push({user:req.user._id,decision:p.data.decision,body:p.data.body,submittedAt:new Date()});
+ if(existing){existing.decision=p.data.decision;existing.body=p.data.body;existing.submittedAt=new Date();existing.commitSha=sourceBranch.sha;}
+ else pr.reviews.push({user:req.user._id,decision:p.data.decision,body:p.data.body,commitSha:sourceBranch.sha,submittedAt:new Date()});
  await pr.save();await record(req.user._id,pr,"pull_request.reviewed","Reviewed pull request #"+pr.number+" as "+p.data.decision+".");
  const updated=await loadPullRequest(pr._id);res.status(201).json({pullRequest:updated});
 }));
@@ -113,9 +117,13 @@ router.post("/:id/close",asyncHandler(async(req,res)=>{
 router.post("/:id/merge",asyncHandler(async(req,res)=>{
  const pr=await loadPullRequest(req.params.id);assertManage(await roleFor(pr.repository,req.user._id));
  if(pr.status!=="open")throw new AppError(409,"PULL_REQUEST_CLOSED","Only open pull requests can be merged.");
- const gate=evaluateReviewGate(pr.reviews,pr.author._id);
+ const sourceBranch=(await listBranches(pr.repository._id)).find(item=>item.name===pr.sourceBranch);
+ if(!sourceBranch)throw new AppError(409,"SOURCE_BRANCH_MISSING","The pull-request source branch no longer exists.");
+ const protection=await protectionForBranch(pr.repository,pr.targetBranch);
+ const gate=evaluateReviewGate(pr.reviews,pr.author._id,{requiredApprovals:protection?.requiredApprovals??1,currentSourceSha:sourceBranch.sha,dismissStaleApprovals:protection?.dismissStaleApprovals===true});
  if(gate.reason==="changes_requested")throw new AppError(409,"CHANGES_REQUESTED","A reviewer has requested changes. Resolve the feedback and update the review before merging.");
- if(!gate.allowed)throw new AppError(409,"APPROVAL_REQUIRED","At least one collaborator must approve this pull request before merging.");
+ if(!gate.allowed)throw new AppError(409,"APPROVAL_REQUIRED","This branch requires "+gate.requiredApprovals+" current independent approval(s).",{approvalCount:gate.approvalCount,requiredApprovals:gate.requiredApprovals,staleApprovals:gate.staleApprovals||0});
+ if(protection?.requireResolvedConversations&&pr.reviewThreads.some(thread=>!thread.resolved))throw new AppError(409,"UNRESOLVED_CONVERSATIONS","Resolve every inline review conversation before merging.");
  const preview=await previewMerge(pr.repository._id,pr.sourceBranch,pr.targetBranch);
  if(!preview.canMerge)throw new AppError(409,"MERGE_CONFLICT","Resolve the branch conflicts before merging.",{conflicts:preview.conflicts,files:preview.files});
  await withRepositoryLock(pr.repository._id,()=>mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,preview.targetHead));

@@ -22,6 +22,7 @@ Registration body: `{ username, displayName, email, password }`. Passwords are b
 | POST | `/repositories` | Signed in; requires durable Git storage in production |
 | GET | `/repositories/:id` | Owner/collaborator or public repository |
 | GET | `/repositories/:id/files?ref=main` | Repository reader |
+| GET | `/repositories/:id/search?q=term&ref=main&limit=100` | Repository reader; tracked text files only |
 | GET | `/repositories/:id/files/content?ref=main&path=README.md` | Repository reader |
 | GET | `/repositories/:id/commits?ref=main&limit=50` | Repository reader |
 | GET | `/repositories/:id/commits/:sha/diff` | Repository reader |
@@ -34,7 +35,7 @@ Registration body: `{ username, displayName, email, password }`. Passwords are b
 | GET | `/repositories/:id/collaborators` | Repository reader |
 | DELETE | `/repositories/:id` | Owner only; exact-name confirmation |
 
-File-commit body: `{ branch, path, content, message }`. Branch-create body: `{ name, base? }`. Merge body: `{ source, target, expectedHead? }`.
+File-commit body: `{ branch, path, content, message }`. Branch-create body: `{ name, base? }`. Merge body: `{ source, target, expectedHead? }`. Code search uses a fixed-string query (`q`, 1–100 characters), an optional Git ref and a result limit of 1–200; binary files and uncommitted working files are excluded.
 
 ## Issues
 

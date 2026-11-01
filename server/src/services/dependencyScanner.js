@@ -196,7 +196,7 @@ export async function scanDependencies(id, ref = "main") {
   }
   const allPackages = [...packages.values()];
   const scannedPackages = allPackages.slice(0, MAX_PACKAGES);
-  const {findings, vulnerabilityCount, detailsTruncated} = await queryOsv(scannedPackages);
+  const {findings, vulnerabilityCount, detailsTruncated, resultsTruncated} = await queryOsv(scannedPackages);
   const summary = {critical: 0, high: 0, medium: 0, low: 0, unrated: 0};
   for (const finding of findings) summary[finding.severity]++;
   return {

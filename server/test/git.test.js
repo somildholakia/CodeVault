@@ -151,3 +151,39 @@ test("validates changed-line review anchors in a branch diff",()=>{
  assert.equal(git.isAddedDiffLine(diff,"src/file.js",1),false);
  assert.equal(git.isAddedDiffLine(diff,"other.js",2),false);
 });
+
+test("tracks per-file history and line-level blame against a selected ref",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.commitFile(id,"main","src/history.js","export const first = true;\\n","Add first line",author);
+ await git.commitFile(id,"main","src/history.js","export const first = true;\\nexport const second = true;\\n","Add second line",author);
+ const history=await git.fileHistory(id,"main","src/history.js",20);
+ assert.equal(history.length,2);
+ assert.match(history[0].message,/Add second line/);
+ assert.match(history[1].message,/Add first line/);
+ const blame=await git.fileBlame(id,"main","src/history.js");
+ assert.equal(blame.path,"src/history.js");
+ assert.equal(blame.lines.length,2);
+ assert.equal(blame.lines[0].line,1);
+ assert.equal(blame.lines[1].line,2);
+ assert.equal(blame.lines[0].author,"Test User");
+ assert.ok(blame.lines[0].sha!==blame.lines[1].sha);
+ assert.match(blame.lines[1].content,/second = true/);
+});
+
+test("deletes only fully merged non-default branches and protects stale refs",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const mainHead=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ await assert.rejects(()=>git.deleteBranch(id,"main","main",mainHead),e=>e.code==="DEFAULT_BRANCH_PROTECTED");
+ await git.createBranch(id,"feature/not-merged","main");
+ const side=await git.commitFile(id,"feature/not-merged","side.js","export const side = true;","Add side branch change",author);
+ const sideHead=(await git.listBranches(id)).find(item=>item.name==="feature/not-merged").sha;
+ await assert.rejects(()=>git.deleteBranch(id,"feature/not-merged","main",mainHead),e=>e.code==="BRANCH_MOVED");
+ await assert.rejects(()=>git.deleteBranch(id,"feature/not-merged","main",sideHead),e=>e.code==="GIT_OPERATION_FAILED");
+ await git.mergeBranches(id,"feature/not-merged","main",mainHead);
+ const mergedHead=(await git.listBranches(id)).find(item=>item.name==="feature/not-merged").sha;
+ const deleted=await git.deleteBranch(id,"feature/not-merged","main",mergedHead);
+ assert.equal(deleted.deletedHead,side.sha);
+ assert.ok(!(await git.listBranches(id)).some(item=>item.name==="feature/not-merged"));
+});

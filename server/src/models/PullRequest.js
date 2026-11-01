@@ -3,7 +3,8 @@ const reviewSchema=new mongoose.Schema({
  user:{type:mongoose.Schema.Types.ObjectId,ref:"User",required:true},
  decision:{type:String,enum:["approved","changes_requested","commented"],required:true},
  body:{type:String,default:"",maxlength:5000},
- submittedAt:{type:Date,default:Date.now}
+ submittedAt:{type:Date,default:Date.now},
+ commitSha:{type:String,default:"",match:/^$|^[a-f0-9]{40}$/i}
 },{_id:false});
 const reviewThreadSchema=new mongoose.Schema({
  author:{type:mongoose.Schema.Types.ObjectId,ref:"User",required:true},

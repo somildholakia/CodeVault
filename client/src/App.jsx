@@ -30,6 +30,27 @@ function arrangeCommitGraph(commits){
  return {nodes,edges,laneCount,width:laneCount*24+20,height:Math.max(1,commits.length)*56};
 }
 
+
+function parseReviewDiff(diff){
+ const rows=[];
+ let path="",newLine=0,insideHunk=false;
+ for(const raw of String(diff||"").split(String.fromCharCode(10))){
+  if(raw.startsWith("+++ b/")){path=raw.slice(6);insideHunk=false;rows.push({type:"meta",text:raw,path});continue;}
+  if(raw.startsWith("diff --git ")){insideHunk=false;rows.push({type:"meta",text:raw,path:""});continue;}
+  if(raw.startsWith("@@ ")){
+   const hunk=raw.match(/\\+([0-9]+)(?:,([0-9]+))? @@/);
+   newLine=hunk?Number(hunk[1]):0;insideHunk=Boolean(hunk);
+   rows.push({type:"meta",text:raw,path});continue;
+  }
+  if(!insideHunk){rows.push({type:"meta",text:raw,path});continue;}
+  if(raw.startsWith("+")&&!raw.startsWith("+++")){rows.push({type:"added",text:raw.slice(1),path,line:newLine});newLine++;}
+  else if(raw.startsWith("-")&&!raw.startsWith("---"))rows.push({type:"removed",text:raw.slice(1),path});
+  else if(raw.startsWith(" ")){rows.push({type:"context",text:raw.slice(1),path,line:newLine});newLine++;}
+  else rows.push({type:"meta",text:raw,path});
+ }
+ return rows;
+}
+
 function Mark(){return <span className="mark"><GitBranch size={18}/></span>}
 function Spin(){return <span className="spinner"/>}
 function Btn({children,...props}){return <button className="btn dark" {...props}>{children}</button>}
@@ -57,6 +78,7 @@ function RepoPage({notify}){
  const [issueStatus,setIssueStatus]=useState("open"),[issueTitle,setIssueTitle]=useState(""),[issueDescription,setIssueDescription]=useState(""),[issuePriority,setIssuePriority]=useState("medium"),[expandedIssue,setExpandedIssue]=useState(null),[issueDetail,setIssueDetail]=useState(null),[comment,setComment]=useState("");
  const [memberUsername,setMemberUsername]=useState(""),[memberRole,setMemberRole]=useState("developer");
  const [pullRequests,setPullRequests]=useState([]),[selectedPr,setSelectedPr]=useState(null),[prDetail,setPrDetail]=useState(null),[prTitle,setPrTitle]=useState(""),[prDescription,setPrDescription]=useState(""),[prSource,setPrSource]=useState(""),[prTarget,setPrTarget]=useState("main"),[prDecision,setPrDecision]=useState("approved"),[prReviewBody,setPrReviewBody]=useState("");
+ const const [prDiff,setPrDiff]=useState(""),[prDiffSha,setPrDiffSha]=useState(""),[prDiffLoading,setPrDiffLoading]=useState(false),[prCommentPath,setPrCommentPath]=useState(""),[prCommentLine,setPrCommentLine]=useState(0),[prCommentBody,setPrCommentBody]=useState(""),[prCommentBusy,setPrCommentBusy]=useState(false),[prReverting,setPrReverting]=useState(false);
  const [error,setError]=useState(""),[notice,setNotice]=useState(""),[loading,setLoading]=useState(true);
  const canWrite=["owner","maintainer","developer"].includes(permission),canManage=["owner","maintainer"].includes(permission);
  const activeRef = snapshotRef || branch;
@@ -90,7 +112,12 @@ function RepoPage({notify}){
  const sendComment=async e=>{e.preventDefault();if(!expandedIssue||!comment.trim())return;try{const r=await api.post("/issues/"+expandedIssue+"/comments",{body:comment});setIssueDetail(v=>v?{...v,comments:r.data.comments}:v);setComment("");}catch(e){setError(e.message);}};
  const addCollaborator=async e=>{e.preventDefault();setError("");try{const r=await api.post("/repositories/"+id+"/collaborators",{username:memberUsername,role:memberRole});setCollaborators(v=>[...v,r.data.collaborator]);setMemberUsername("");setNotice("Added @"+r.data.collaborator.user.username+" as "+memberRole+".");}catch(e){setError(e.message);}};
  const createPullRequest=async e=>{e.preventDefault();setError("");try{const r=await api.post("/pull-requests",{repositoryId:id,title:prTitle,description:prDescription,sourceBranch:prSource,targetBranch:prTarget});setPullRequests(v=>[r.data.pullRequest,...v]);setSelectedPr(r.data.pullRequest._id);setPrDetail(r.data.pullRequest);setPrTitle("");setPrDescription("");setNotice("Created pull request #"+r.data.pullRequest.number+".");}catch(e){setError(e.message);}};
- const openPullRequest=async item=>{setSelectedPr(item._id);setError("");try{const r=await api.get("/pull-requests/"+item._id);setPrDetail(r.data.pullRequest);}catch(e){setError(e.message);}};
+ const openPullRequest=async item=>{setSelectedPr(item._id);setError("");setPrDiffLoading(true);setPrDetail(null);setPrDiff("");setPrDiffSha("");try{const [detail,diffResult]=await Promise.all([api.get("/pull-requests/"+item._id),api.get("/pull-requests/"+item._id+"/diff")]);setPrDetail(detail.data.pullRequest);setPrDiff(diffResult.data.diff||"");setPrDiffSha(diffResult.data.sourceSha||"");}catch(e){setError(e.message);}finally{setPrDiffLoading(false);}};
+
+ const submitInlineComment=async e=>{e.preventDefault();if(!selectedPr||!prDiffSha||!prCommentPath||!prCommentLine||!prCommentBody.trim())return;setPrCommentBusy(true);setError("");try{const r=await api.post("/pull-requests/"+selectedPr+"/comments",{path:prCommentPath,line:prCommentLine,side:"RIGHT",commitSha:prDiffSha,body:prCommentBody});setPrDetail(r.data.pullRequest);setPrCommentBody("");setNotice("Inline review comment added.");}catch(e){setError(e.message);}finally{setPrCommentBusy(false);}};
+ const toggleInlineThread=async thread=>{if(!selectedPr)return;setError("");try{const r=await api.patch("/pull-requests/"+selectedPr+"/comments/"+thread._id,{resolved:!thread.resolved});setPrDetail(r.data.pullRequest);setNotice(thread.resolved?"Review thread reopened.":"Review thread resolved.");}catch(e){setError(e.message);}};
+ const refreshPrDiff=async()=>{if(!selectedPr)return;setPrDiffLoading(true);setError("");try{const r=await api.get("/pull-requests/"+selectedPr+"/diff");setPrDiff(r.data.diff||"");setPrDiffSha(r.data.sourceSha||"");setPrCommentPath("");setPrCommentLine(0);}catch(e){setError(e.message);}finally{setPrDiffLoading(false);}};
+ const revertSelectedCommit=async commit=>{const currentHead=branches.find(item=>item.name===branch)?.sha;if(!currentHead){setError("Refresh branches before reverting this commit.");return;}if(!window.confirm("Create a new commit that reverses "+sha(commit.sha)+" on "+branch+"? Existing history will not be rewritten."))return;setPrReverting(true);setError("");try{const r=await api.post("/repositories/"+id+"/revert",{branch,commitSha:commit.sha,expectedHead:currentHead});setNotice("Created revert commit "+sha(r.data.revert.revertCommit)+".");setSelectedCommit(null);setGraphCommit(null);setDiff("");await Promise.all([loadBranches(),loadCommits(),loadFiles()]);if(tab==="graph")await loadGraph();}catch(e){setError(e.message);}finally{setPrReverting(false);}};
  const reviewPullRequest=async e=>{e.preventDefault();if(!selectedPr)return;setError("");try{const r=await api.post("/pull-requests/"+selectedPr+"/reviews",{decision:prDecision,body:prReviewBody});setPrDetail(r.data.pullRequest);setPrReviewBody("");setNotice("Review submitted.");}catch(e){setError(e.message);}};
  const mergePullRequest=async()=>{if(!selectedPr)return;setError("");try{const r=await api.post("/pull-requests/"+selectedPr+"/merge");setPrDetail(r.data.pullRequest);await loadPullRequests();setNotice("Pull request merged successfully.");}catch(e){setError(e.message);}};
  const closePullRequest=async()=>{if(!selectedPr)return;setError("");try{const r=await api.post("/pull-requests/"+selectedPr+"/close");setPrDetail(r.data.pullRequest);await loadPullRequests();setNotice("Pull request closed.");}catch(e){setError(e.message);}};

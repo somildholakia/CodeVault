@@ -1,6 +1,6 @@
 import {useEffect,useState} from "react";
 import {BrowserRouter,Link,NavLink,Route,Routes,useNavigate,useParams} from "react-router-dom";
-import {Activity,ArrowRight,ChevronRight,CircleDot,FolderGit2,GitBranch,GitCommitHorizontal,GitMerge,LayoutDashboard,LogOut,Plus,Search,ShieldCheck,Users,FileCode2,Code2,X,AlertCircle,LockKeyhole,Globe2,MessageSquare,UserPlus,Clock3,Check,RefreshCw,ChevronDown,GitPullRequest} from "lucide-react";
+import {Activity,ArrowRight,ChevronRight,CircleDot,FolderGit2,GitBranch,GitCommitHorizontal,GitMerge,LayoutDashboard,LogOut,Plus,Search,ShieldCheck,Users,FileCode2,Code2,X,AlertCircle,LockKeyhole,Globe2,MessageSquare,UserPlus,Clock3,Check,RefreshCw,ChevronDown,GitPullRequest,Tag} from "lucide-react";
 import {api} from "./lib/api.js";
 const date=v=>v?new Date(v).toLocaleDateString():"—";
 const sha=v=>v?String(v).slice(0,7):"—";
@@ -25,6 +25,7 @@ function RepoPage({notify}){
  const [selectedCommit,setSelectedCommit]=useState(null),[diff,setDiff]=useState(""),[loadingDiff,setLoadingDiff]=useState(false);
  const [branchName,setBranchName]=useState(""),[branchBase,setBranchBase]=useState("main");
  const [codeQuery,setCodeQuery]=useState(""),[codeSearch,setCodeSearch]=useState(null),[searching,setSearching]=useState(false);
+ const [releaseItems,setReleaseItems]=useState([]),[gitTags,setGitTags]=useState([]),[releaseName,setReleaseName]=useState(""),[releaseTag,setReleaseTag]=useState(""),[releaseNotes,setReleaseNotes]=useState(""),[releaseTarget,setReleaseTarget]=useState("main"),[publishingRelease,setPublishingRelease]=useState(false);
  const [mergeSource,setMergeSource]=useState(""),[mergeTarget,setMergeTarget]=useState("main"),[mergePreview,setMergePreview]=useState(null),[merging,setMerging]=useState(false);
  const [issueStatus,setIssueStatus]=useState("open"),[issueTitle,setIssueTitle]=useState(""),[issueDescription,setIssueDescription]=useState(""),[issuePriority,setIssuePriority]=useState("medium"),[expandedIssue,setExpandedIssue]=useState(null),[issueDetail,setIssueDetail]=useState(null),[comment,setComment]=useState("");
  const [memberUsername,setMemberUsername]=useState(""),[memberRole,setMemberRole]=useState("developer");
@@ -37,9 +38,10 @@ function RepoPage({notify}){
  const loadIssues=async()=>{const r=await api.get("/repositories/"+id+"/issues",{params:{status:issueStatus}});setIssues(r.data.issues||[]);};
  const loadCollaborators=async()=>{const r=await api.get("/repositories/"+id+"/collaborators");setCollaborators(r.data.collaborators||[]);};
  const loadPullRequests=async()=>{const r=await api.get("/pull-requests",{params:{repository:id,limit:100}});setPullRequests(r.data.pullRequests||[]);};
- useEffect(()=>{let active=true;setLoading(true);setError("");api.get("/repositories/"+id).then(async r=>{if(!active)return;setRepo(r.data.repository);setPermission(r.data.permission);setBranch(r.data.repository.defaultBranch||"main");setBranchBase(r.data.repository.defaultBranch||"main");setMergeTarget(r.data.repository.defaultBranch||"main");try{const b=await api.get("/repositories/"+id+"/branches");if(active)setBranches(b.data.branches||[]);}catch(e){if(active)setError(e.message);}}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[id]);
+ const loadReleases=async()=>{const r=await api.get("/repositories/"+id+"/releases");setReleaseItems(r.data.releases||[]);setGitTags(r.data.tags||[]);};
+ useEffect(()=>{let active=true;setLoading(true);setError("");api.get("/repositories/"+id).then(async r=>{if(!active)return;setRepo(r.data.repository);setPermission(r.data.permission);setBranch(r.data.repository.defaultBranch||"main");setBranchBase(r.data.repository.defaultBranch||"main");setMergeTarget(r.data.repository.defaultBranch||"main");setReleaseTarget(r.data.repository.defaultBranch||"main");try{const b=await api.get("/repositories/"+id+"/branches");if(active)setBranches(b.data.branches||[]);}catch(e){if(active)setError(e.message);}}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[id]);
  useEffect(()=>{let active=true;Promise.all([api.get("/repositories/"+id+"/files",{params:{ref:branch}}),api.get("/repositories/"+id+"/commits",{params:{ref:branch,limit:100}})]).then(([f,c])=>{if(active){setFiles(f.data.files||[]);setCommits(c.data.commits||[]);}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[id,branch]);
- useEffect(()=>{if(tab==="issues")loadIssues().catch(e=>setError(e.message));if(tab==="collaborators")loadCollaborators().catch(e=>setError(e.message));if(tab==="pull-requests")loadPullRequests().catch(e=>setError(e.message));},[id,tab,issueStatus]);
+ useEffect(()=>{if(tab==="issues")loadIssues().catch(e=>setError(e.message));if(tab==="collaborators")loadCollaborators().catch(e=>setError(e.message));if(tab==="pull-requests")loadPullRequests().catch(e=>setError(e.message));if(tab==="releases")loadReleases().catch(e=>setError(e.message));},[id,tab,issueStatus]);
  const openFile=async file=>{setSelectedFile(file.path);setEditing(false);setNotice("");setError("");try{const r=await api.get("/repositories/"+id+"/files/content",{params:{ref:branch,path:file.path}});setFileContent(r.data.content);setCommitMessage("Update "+file.path);}catch(e){setError(e.message);}};
  const saveFile=async e=>{e.preventDefault();setSaving(true);setError("");setNotice("");try{const r=await api.post("/repositories/"+id+"/commits",{branch,path:selectedFile,content:fileContent,message:commitMessage});setEditing(false);setNotice("Committed "+selectedFile+" · "+sha(r.data.commit.sha));await Promise.all([loadFiles(),loadCommits()]);}catch(e){setError(e.message);}finally{setSaving(false);}};
  const inspectCommit=async c=>{setSelectedCommit(c);setLoadingDiff(true);setDiff("");try{const r=await api.get("/repositories/"+id+"/commits/"+c.sha+"/diff");setDiff(r.data.diff||"No textual diff was returned.");}catch(e){setError(e.message);}finally{setLoadingDiff(false);}};
@@ -48,6 +50,7 @@ function RepoPage({notify}){
  const createBranch=async e=>{e.preventDefault();setError("");try{await api.post("/repositories/"+id+"/branches",{name:branchName,base:branchBase});setBranchName("");await loadBranches();setNotice("Created branch "+branchName+".");}catch(e){setError(e.message);}};
  const runMergePreview=async e=>{e.preventDefault();setError("");setMergePreview(null);try{const r=await api.post("/repositories/"+id+"/merge-preview",{source:mergeSource,target:mergeTarget});setMergePreview(r.data);}catch(e){setError(e.message);}};
  const performMerge=async()=>{if(!mergePreview?.canMerge)return;setMerging(true);setError("");try{await api.post("/repositories/"+id+"/merge",{source:mergeSource,target:mergeTarget,expectedHead:mergePreview.targetHead});setNotice("Merged "+mergeSource+" into "+mergeTarget+".");setMergePreview(null);await Promise.all([loadBranches(),loadCommits()]);}catch(e){setError(e.message);}finally{setMerging(false);}};
+ const publishRelease=async e=>{e.preventDefault();setPublishingRelease(true);setError("");try{const r=await api.post("/repositories/"+id+"/releases",{name:releaseName,tagName:releaseTag,notes:releaseNotes,targetBranch:releaseTarget});setReleaseItems(v=>[r.data.release,...v]);setReleaseName("");setReleaseTag("");setReleaseNotes("");await loadReleases();setNotice("Published release "+r.data.release.tagName+".");}catch(e){setError(e.message);}finally{setPublishingRelease(false);}};
  const createIssue=async e=>{e.preventDefault();setError("");try{const r=await api.post("/repositories/"+id+"/issues",{title:issueTitle,description:issueDescription,priority:issuePriority,labels:[]});setIssues(v=>[r.data.issue,...v]);setIssueTitle("");setIssueDescription("");setNotice("Created issue #"+r.data.issue.number+".");}catch(e){setError(e.message);}};
  const toggleIssue=async item=>{setError("");try{const r=await api.patch("/issues/"+item._id,{status:item.status==="open"?"closed":"open"});setIssues(v=>v.map(x=>x._id===item._id?r.data.issue:x));if(expandedIssue===item._id)setIssueDetail(r.data.issue);setNotice(item.status==="open"?"Issue closed.":"Issue reopened.");}catch(e){setError(e.message);}};
  const expandIssue=async item=>{if(expandedIssue===item._id){setExpandedIssue(null);setIssueDetail(null);return;}setExpandedIssue(item._id);try{const r=await api.get("/issues/"+item._id);setIssueDetail(r.data.issue);}catch(e){setError(e.message);}};
@@ -62,7 +65,7 @@ function RepoPage({notify}){
  if(loading)return <div className="loading"><Spin/>Loading repository…</div>;
  if(error&&!repo)return <div className="page"><div className="error"><AlertCircle size={15}/>{error}</div><Link className="text-link" to="/repositories">Back to repositories</Link></div>;
  if(!repo)return <div className="loading"><Spin/>Loading repository…</div>;
- const tabs=[["overview","Overview"],["files","Files"],["search","Code search"],["commits","Commits"],["branches","Branches"],["merge","Merge"],["pull-requests","Pull requests"],["issues","Issues"],["collaborators","People"]];
+ const tabs=[["overview","Overview"],["files","Files"],["search","Code search"],["commits","Commits"],["releases","Releases"],["branches","Branches"],["merge","Merge"],["pull-requests","Pull requests"],["issues","Issues"],["collaborators","People"]];
  return <div className="page">
   <div className="repo-crumb"><Link to="/repositories">Repositories</Link><ChevronRight size={13}/><b>{repo.name}</b><span className="badge">{repo.visibility}</span></div>
   <div className="repo-title"><span className="repo-icon"><FolderGit2 size={22}/></span><div><h1>{repo.name}</h1><p>{repo.description||"Source, version history, and project work."}</p><small>Owned by {repo.owner?.username||"member"} · default branch {repo.defaultBranch}</small></div></div>
@@ -118,6 +121,29 @@ function RepoPage({notify}){
     {prDetail.mergeCommit&&<p className="note">Merged commit: <code>{prDetail.mergeCommit}</code></p>}
     {prDetail.status==="open"&&<div className="pr-actions">{canManage&&<button className="btn dark small" onClick={mergePullRequest}><GitMerge size={14}/>Merge reviewed pull request</button>}<button className="btn outline small" onClick={closePullRequest}>Close pull request</button></div>}
    </Panel>}
+  </div>}
+  {tab==="releases"&&<div className="repo-layout">
+   {canManage&&<Panel title="Publish a release" detail="Create an annotated Git tag and save release notes for this repository.">
+    <form className="form release-form" onSubmit={publishRelease}>
+     <label>Release title<input value={releaseName} onChange={e=>setReleaseName(e.target.value)} maxLength="120" placeholder="First stable release" required/></label>
+     <label>Tag name<input value={releaseTag} onChange={e=>setReleaseTag(e.target.value)} maxLength="128" pattern="[A-Za-z0-9][A-Za-z0-9._/-]*" placeholder="v1.0.0" required/></label>
+     <label>Target branch<select value={releaseTarget} onChange={e=>setReleaseTarget(e.target.value)}>{branches.map(b=><option key={b.name} value={b.name}>{b.name}</option>)}</select></label>
+     <label>Release notes<textarea value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} rows="5" maxLength="5000" placeholder="Describe the improvements, fixes and changes included in this version." required/></label>
+     <button className="btn dark full" disabled={publishingRelease||!releaseTag.trim()||!releaseName.trim()||!releaseNotes.trim()}>{publishingRelease?<Spin/>:<Tag size={14}/>}Publish release</button>
+    </form>
+   </Panel>}
+   <div className="stack">
+    <Panel title="Published releases" detail="Versioned snapshots created from real Git commits.">
+     {releaseItems.length?releaseItems.map(item=><article className="release-card" key={item._id}>
+      <div className="release-card-head"><span><Tag size={15}/><b>{item.name}</b></span><code>{item.tagName}</code></div>
+      <p>{item.notes}</p>
+      <small>{item.targetBranch} · {sha(item.targetSha)} · published {date(item.publishedAt)} by @{item.author?.username||"member"}</small>
+     </article>):<Empty title="No releases published" body="Publish a version when your project reaches a useful milestone."/>}
+    </Panel>
+    <Panel title="Git tags" detail="Annotated and lightweight tags present in the repository.">
+     {gitTags.length?gitTags.map(item=><div className="tag-row" key={item.name}><Tag size={14}/><b>{item.name}</b><code>{sha(item.commitSha)}</code><small>{item.subject||"Git tag"}</small></div>):<Empty title="No Git tags yet" body="Publishing a release creates an annotated tag on the selected branch."/>}
+    </Panel>
+   </div>
   </div>}
   {tab==="issues"&&<Panel title="Issue tracker" detail="Create, discuss and close repository work items."><div className="tabs issue-tabs">{["open","closed","all"].map(v=><button key={v} className={issueStatus===v?"selected":""} onClick={()=>setIssueStatus(v)}>{v}</button>)}</div>{canWrite&&<form className="issue-form form" onSubmit={createIssue}><label>Issue title<input value={issueTitle} onChange={e=>setIssueTitle(e.target.value)} placeholder="What needs to happen?" maxLength="180" required/></label><label>Description<textarea value={issueDescription} onChange={e=>setIssueDescription(e.target.value)} rows="3" maxLength="12000" placeholder="Context, expected behaviour and acceptance criteria."/></label><label>Priority<select value={issuePriority} onChange={e=>setIssuePriority(e.target.value)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label><button className="btn dark small"><Plus size={14}/>Create issue</button></form>}{issues.length?issues.map(item=><article className="issue-card" key={item._id}><div className="issue-line"><CircleDot size={15}/><span>#{item.number}</span><b>{item.title}</b><span className="badge">{item.priority}</span><span className="badge">{item.status}</span><button className="btn outline small" onClick={()=>toggleIssue(item)}>{item.status==="open"?"Close":"Reopen"}</button><button className="icon-btn" title="Show discussion" onClick={()=>expandIssue(item)}><MessageSquare size={15}/></button></div>{expandedIssue===item._id&&<div className="issue-detail"><p>{issueDetail?.description||item.description||"No description."}</p>{(issueDetail?.comments||[]).map((c,i)=><div className="comment-row" key={c._id||i}><b>{c.author?.username||"Member"}</b><span>{c.body}</span><small>{date(c.createdAt)}</small></div>)}<form className="comment-form" onSubmit={sendComment}><input value={comment} onChange={e=>setComment(e.target.value)} maxLength="5000" placeholder="Add a comment…" required/><button className="btn dark small"><MessageSquare size={13}/>Comment</button></form></div>}</article>):<Empty title="No issues in this view" body="Create an issue to make the work visible."/>}</Panel>}
   {tab==="collaborators"&&<div className="repo-layout">

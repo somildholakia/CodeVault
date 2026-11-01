@@ -5,6 +5,18 @@ const reviewSchema=new mongoose.Schema({
  body:{type:String,default:"",maxlength:5000},
  submittedAt:{type:Date,default:Date.now}
 },{_id:false});
+const reviewThreadSchema=new mongoose.Schema({
+ author:{type:mongoose.Schema.Types.ObjectId,ref:"User",required:true},
+ body:{type:String,required:true,trim:true,minlength:1,maxlength:5000},
+ path:{type:String,required:true,trim:true,maxlength:500},
+ line:{type:Number,required:true,min:1},
+ side:{type:String,enum:["RIGHT"],default:"RIGHT"},
+ commitSha:{type:String,required:true,match:/^[a-f0-9]{40}$/i},
+ resolved:{type:Boolean,default:false,index:true},
+ resolvedBy:{type:mongoose.Schema.Types.ObjectId,ref:"User",default:null},
+ resolvedAt:{type:Date,default:null},
+ createdAt:{type:Date,default:Date.now}
+});
 const schema=new mongoose.Schema({
  repository:{type:mongoose.Schema.Types.ObjectId,ref:"Repository",required:true,index:true},
  number:{type:Number,required:true},
@@ -15,6 +27,7 @@ const schema=new mongoose.Schema({
  targetBranch:{type:String,required:true,maxlength:160},
  status:{type:String,enum:["open","merged","closed"],default:"open",index:true},
  reviews:{type:[reviewSchema],default:[]},
+ reviewThreads:{type:[reviewThreadSchema],default:[]},
  mergeCommit:{type:String,default:""},
  mergedBy:{type:mongoose.Schema.Types.ObjectId,ref:"User",default:null},
  mergedAt:{type:Date,default:null},

@@ -35,6 +35,8 @@ async function createMergeSandbox(root, targetSha) {
       env: {...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1"}
     });
     await git(sandbox, ["checkout", "--quiet", "--detach", targetSha]);
+    await git(sandbox, ["config", "user.name", "CodeVault Merge Sandbox"]);
+    await git(sandbox, ["config", "user.email", "merge-sandbox@codevault.local"]);
     return sandbox;
   } catch (error) {
     await fs.rm(sandbox, {recursive: true, force: true}).catch(() => {});

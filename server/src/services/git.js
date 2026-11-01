@@ -77,3 +77,33 @@ export async function searchCode(id, query, ref = "main", limit = 100) {
   const limitedResults = results.slice(0, maxResults);
   return {query: term, ref: revision, results: limitedResults, truncated};
 }
+
+export async function listTags(id) {
+  const root = repositoryPath(id);
+  const format = "%(refname:short)%x1f%(objectname)%x1f%(*objectname)%x1f%(creatordate:iso-strict)%x1f%(subject)";
+  const result = await git(root, ["for-each-ref", "--sort=-creatordate", "--format=" + format, "refs/tags"]);
+  return result.stdout.split(String.fromCharCode(10)).filter(Boolean).map(row => {
+    const [name, objectSha, targetSha, createdAt, subject] = row.split(String.fromCharCode(31));
+    return {name, objectSha, commitSha: targetSha || objectSha, createdAt, subject: subject || ""};
+  });
+}
+
+export async function createTag(id, tagName, targetRef, message, author = {}) {
+  const name = safeRef(tagName);
+  const target = safeRef(targetRef);
+  if (name.length > 128) throw new AppError(400, "INVALID_TAG_NAME", "Tag names may contain at most 128 characters.");
+  const root = repositoryPath(id);
+  await git(root, ["check-ref-format", "refs/tags/" + name]);
+  const commitSha = (await git(root, ["rev-parse", "--verify", target + "^{commit}"])).stdout.trim();
+  const note = String(message || "").trim();
+  if (!note || note.length > 5000) throw new AppError(400, "INVALID_TAG_MESSAGE", "Release notes must contain 1–5000 characters.");
+  const authorName = String(author.displayName || author.username || "CodeVault Member").slice(0, 80);
+  const authorEmail = String(author.email || "member@codevault.local").slice(0, 254);
+  await git(root, ["-c", "user.name=" + authorName, "-c", "user.email=" + authorEmail, "tag", "-a", name, "-m", note, target]);
+  return {name, commitSha, target};
+}
+
+export async function deleteTag(id, tagName) {
+  const name = safeRef(tagName);
+  await git(repositoryPath(id), ["tag", "-d", name]);
+}

@@ -72,3 +72,35 @@ test("rejects invalid release targets and tag names",async()=>{
  await assert.rejects(()=>git.createTag(id,"../v1","main","Invalid tag"),e=>e.code==="INVALID_GIT_REF");
  await assert.rejects(()=>git.createTag(id,"v1.0.0","missing-branch","Invalid target"),e=>e.code==="GIT_OPERATION_FAILED");
 });
+
+test("builds a commit graph across branches with parent pointers and refs",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const initial=(await git.listCommits(id,"main",1))[0];
+ await git.createBranch(id,"feature/graph","main");
+ const feature=await git.commitFile(id,"feature/graph","feature.js","export const feature = true;","Add feature branch commit",author);
+ const main=await git.commitFile(id,"main","main.js","export const main = true;","Add main branch commit",author);
+ const graph=await git.listCommitGraph(id,"all",50);
+ const bySha=new Map(graph.commits.map(commit=>[commit.sha,commit]));
+ assert.ok(bySha.has(feature.sha));
+ assert.ok(bySha.has(main.sha));
+ assert.ok(bySha.has(initial.sha));
+ assert.deepEqual(bySha.get(feature.sha).parents,[initial.sha]);
+ assert.deepEqual(bySha.get(main.sha).parents,[initial.sha]);
+ assert.ok(bySha.get(initial.sha).refs.some(ref=>ref.name==="main"&&ref.type==="branch"));
+ assert.ok(graph.branches.some(item=>item.name==="feature/graph"));
+});
+
+test("compares two commits and rejects identical or invalid refs",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const base=(await git.listCommits(id,"main",1))[0];
+ const next=await git.commitFile(id,"main","compare.js","export const compared = true;","Add comparison fixture",author);
+ const comparison=await git.compareCommits(id,base.sha,next.sha);
+ assert.equal(comparison.base,base.sha);
+ assert.equal(comparison.target,next.sha);
+ assert.match(comparison.diff,/compare.js/);
+ assert.match(comparison.diff,/compared/);
+ await assert.rejects(()=>git.compareCommits(id,base.sha,base.sha),e=>e.code==="SAME_COMMIT");
+ await assert.rejects(()=>git.compareCommits(id,"missing","main"),e=>e.code==="GIT_OPERATION_FAILED");
+});

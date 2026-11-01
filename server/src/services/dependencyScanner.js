@@ -92,7 +92,7 @@ function fixedVersionsOf(vulnerability, packageName) {
 }
 
 async function queryOsv(packages) {
-  const queries = packages.map(item => ({package: {name: item.name, ecosystem: "npm"}, version: item.version}));
+  const queries = packages.map(item => ({package: {name: item.name, ecosystem: item.ecosystem || "npm"}, version: item.version}));
   let response;
   try {
     response = await fetch("https://api.osv.dev/v1/querybatch", {
@@ -158,16 +158,35 @@ async function queryOsv(packages) {
   return {findings, vulnerabilityCount: matches.size, detailsTruncated: matches.size > MAX_DETAILS, resultsTruncated};
 }
 
+
+export function extractPythonRequirements(text, source = "requirements.txt") {
+  const found = new Map();
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("-") || line.startsWith("git+") || line.startsWith("http:") || line.startsWith("https:")) continue;
+    const match = line.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)\s*==\s*([A-Za-z0-9][A-Za-z0-9.!+_-]*)\s*(?:#.*)?$/);
+    if (!match) continue;
+    const name = match[1].toLowerCase().replace(/[-_.]+/g, "-");
+    const version = match[2];
+    const key = name + "@" + version;
+    const item = found.get(key) || {name, version, ecosystem: "PyPI", development: false, optional: false, manifests: []};
+    if (!item.manifests.includes(source)) item.manifests.push(source);
+    found.set(key, item);
+  }
+  return [...found.values()].sort((a,b)=>a.name.localeCompare(b.name)||a.version.localeCompare(b.version));
+}
+
 export async function scanDependencies(id, ref = "main") {
   const paths = await listFiles(id, ref);
   const lockFiles = paths.filter(file =>
     file.path === "package-lock.json" || file.path === "npm-shrinkwrap.json" ||
     /\/package-lock\.json$/.test(file.path) || /\/npm-shrinkwrap\.json$/.test(file.path)
   ).sort((a, b) => a.path.split("/").length - b.path.split("/").length);
-  if (!lockFiles.length) {
+  const pythonFiles = paths.filter(file => /(^|\/)requirements(?:[-_.][A-Za-z0-9_-]+)?\.txt$/i.test(file.path)).slice(0, 20);
+  if (!lockFiles.length && !pythonFiles.length) {
     const inventory = await inventoryManifests(id, ref, paths);
     return {
-      status: inventory.manifestCount ? "lockfile_required" : "no_npm_manifest",
+      status: inventory.manifestCount ? "lockfile_required" : "no_supported_manifest",
       ref,
       lockfiles: [],
       manifestCount: inventory.manifestCount,
@@ -194,6 +213,12 @@ export async function scanDependencies(id, ref = "main") {
     scannedLockfiles.push(lockFile.path);
     for (const item of entries) packages.set(item.name + "@" + item.version, item);
   }
+  const pythonInventory = [];
+  for (const file of pythonFiles) {
+    const content = (await readFile(id, ref, file.path)).content;
+    pythonInventory.push(...extractPythonRequirements(content, file.path));
+  }
+  for (const item of pythonInventory) packages.set(item.ecosystem + ":" + item.name + "@" + item.version, item);
   const allPackages = [...packages.values()];
   const scannedPackages = allPackages.slice(0, MAX_PACKAGES);
   const {findings, vulnerabilityCount, detailsTruncated, resultsTruncated} = await queryOsv(scannedPackages);
@@ -203,6 +228,8 @@ export async function scanDependencies(id, ref = "main") {
     status: "scanned",
     ref,
     lockfiles: scannedLockfiles,
+    requirementsFiles: pythonFiles.map(file => file.path),
+    ecosystems: [...new Set(scannedPackages.map(item => item.ecosystem || "npm"))],
     manifestCount: paths.filter(file => file.path.endsWith("package.json")).length,
     packageCount: allPackages.length,
     scannedPackageCount: scannedPackages.length,

@@ -8,9 +8,11 @@ import Collaborator from "../models/Collaborator.js";
 import Issue from "../models/Issue.js";
 import Activity from "../models/Activity.js";
 import Release from "../models/Release.js";
+import BranchProtection from "../models/BranchProtection.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
-import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,withRepositoryLock} from "../services/git.js";
+import {selectBranchProtection} from "../services/pullRequestPolicy.js";
+import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,getContributionStats,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,uid){if(repo.owner._id.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -21,6 +23,7 @@ function assertRead(role,repo){if(!canRead(role,repo))throw notFound("Repository
 function assertWrite(role){if(!canWrite(role))throw new AppError(403,"PERMISSION_DENIED","You do not have write access to this repository.");}
 function assertManage(role){if(!canManage(role))throw new AppError(403,"PERMISSION_DENIED","Only the owner or a maintainer can manage this operation.");}
 function requireDurableStorage(){if(process.env.NODE_ENV==="production"&&process.env.REPO_STORAGE_DURABLE!=="true")throw new AppError(503,"PERSISTENT_STORAGE_NOT_CONFIGURED","Repository writes are disabled until durable storage is configured.");}
+async function protectionForBranch(repo,branch){const rules=await BranchProtection.find({repository:repo._id}).lean();return selectBranchProtection(rules,branch);}
 async function event(uid,repo,action,type,name,summary,id=""){await Activity.create({actor:uid,repository:repo?._id||null,action,entityType:type,entityName:name,entityId:String(id),summary});if(repo){repo.lastActivityAt=new Date();await repo.save();}}
 router.get("/",asyncHandler(async(req,res)=>{const limit=Math.min(100,Math.max(1,Number(req.query.limit)||100));const ms=await Collaborator.find({user:req.user._id,acceptedAt:{$ne:null}}).select("repository");const repositories=await Repository.find({$or:[{owner:req.user._id},{visibility:"public"},{_id:{$in:ms.map(m=>m.repository)}}]}).sort({updatedAt:-1}).limit(limit).populate("owner","username displayName avatarUrl");res.json({repositories});}));
 router.post("/",asyncHandler(async(req,res)=>{
@@ -100,6 +103,48 @@ router.get("/:id/compare",asyncHandler(async(req,res)=>{
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose two commit refs to compare.",p.error.flatten());
  res.json(await compareCommits(repo._id,p.data.base,p.data.target));
 }));
+router.get("/:id/insights",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const ref=String(req.query.ref||"all");
+ const days=Math.min(365,Math.max(7,Number(req.query.days)||90));
+ res.json({insights:await getContributionStats(repo._id,ref,days)});
+}));
+router.get("/:id/branch-protection",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const rules=await BranchProtection.find({repository:repo._id}).sort({pattern:1}).lean();
+ const branch=typeof req.query.branch==="string"?req.query.branch:"";
+ res.json({rules,matched:branch?selectBranchProtection(rules,branch):null});
+}));
+router.put("/:id/branch-protection",asyncHandler(async(req,res)=>{
+ requireDurableStorage();
+ const repo=await getRepo(req.params.id);
+ assertManage(await roleFor(repo,req.user._id));
+ const p=z.object({
+  pattern:z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9._/*?-]+$/).refine(value=>!value.includes("..")&&!value.includes("//")&&!value.startsWith("-"),"Branch pattern is invalid."),
+  requirePullRequest:z.boolean().default(true),
+  requiredApprovals:z.number().int().min(0).max(10).default(1),
+  requireResolvedConversations:z.boolean().default(true),
+  dismissStaleApprovals:z.boolean().default(true),
+  preventDeletion:z.boolean().default(true)
+ }).strict().safeParse(req.body);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Branch protection settings are invalid.",p.error.flatten());
+ const rule=await BranchProtection.findOneAndUpdate({repository:repo._id,pattern:p.data.pattern},{$set:p.data,$setOnInsert:{repository:repo._id}},{upsert:true,new:true,runValidators:true});
+ await event(req.user._id,repo,"branch.protection_updated","branch_protection",rule.pattern,"Updated protection rules for "+rule.pattern+".",rule._id);
+ res.json({rule});
+}));
+router.delete("/:id/branch-protection",asyncHandler(async(req,res)=>{
+ requireDurableStorage();
+ const repo=await getRepo(req.params.id);
+ assertManage(await roleFor(repo,req.user._id));
+ const p=z.object({pattern:z.string().trim().min(1).max(120)}).strict().safeParse(req.body);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide the exact branch protection pattern to remove.");
+ const removed=await BranchProtection.findOneAndDelete({repository:repo._id,pattern:p.data.pattern});
+ if(!removed)throw notFound("Branch protection rule not found.");
+ await event(req.user._id,repo,"branch.protection_deleted","branch_protection",removed.pattern,"Removed protection rules for "+removed.pattern+".",removed._id);
+ res.json({deleted:true,pattern:removed.pattern});
+}));
 router.get("/:id/files",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const ref=String(req.query.ref||repo.defaultBranch);res.json({files:await listFiles(repo._id,ref),ref});}));
 router.get("/:id/files/content",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json(await readFile(repo._id,String(req.query.ref||repo.defaultBranch),String(req.query.path||"")));}));
 router.get("/:id/files/history",asyncHandler(async(req,res)=>{
@@ -129,6 +174,7 @@ router.post("/:id/revert",asyncHandler(async(req,res)=>{
   expectedHead:z.string().regex(/^[a-f0-9]{40}$/i)
  }).strict().safeParse(req.body);
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose a branch, commit and current branch head.",p.error.flatten());
+ const protection=await protectionForBranch(repo,p.data.branch);if(protection?.requirePullRequest)throw new AppError(409,"DIRECT_PUSH_BLOCKED","This branch requires changes to be merged through an approved pull request.",{pattern:protection.pattern});
  const result=await withRepositoryLock(repo._id,()=>revertCommit(repo._id,p.data.branch,p.data.commitSha,p.data.expectedHead,req.user));
  await event(req.user._id,repo,"commit.reverted","commit",result.revertedCommit,"Reverted commit "+result.revertedCommit.slice(0,7)+" on "+result.branch+".",result.revertCommit);
  res.status(201).json({revert:result});
@@ -147,7 +193,8 @@ router.delete("/:id/branches",asyncHandler(async(req,res)=>{
  res.json({deleted:true,branch:result.name,deletedHead:result.deletedHead});
 }));
 router.post("/:id/merge-preview",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose source and target branches.");res.json(await previewMerge(repo._id,p.data.source,p.data.target));}));
-router.post("/:id/merge",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose valid source and target branches.");const result=await withRepositoryLock(repo._id,()=>mergeBranches(repo._id,p.data.source,p.data.target,p.data.expectedHead));await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Merged "+p.data.source+" into "+p.data.target+".",p.data.source);res.json({merged:true,result});}));
+router.post("/:id/merge",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose valid source and target branches.");const protection=await protectionForBranch(repo,p.data.target);if(protection?.requirePullRequest)throw new AppError(409,"PULL_REQUEST_REQUIRED","This target branch accepts merges only through an approved pull request.",{pattern:protection.pattern});
+ const result=await withRepositoryLock(repo._id,()=>mergeBranches(repo._id,p.data.source,p.data.target,p.data.expectedHead));await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Merged "+p.data.source+" into "+p.data.target+".",p.data.source);res.json({merged:true,result});}));
 router.post("/:id/merge-resolve",asyncHandler(async(req,res)=>{
  requireDurableStorage();
  const repo=await getRepo(req.params.id);
@@ -164,11 +211,13 @@ router.post("/:id/merge-resolve",asyncHandler(async(req,res)=>{
   }).strict()).max(50)
  }).strict().safeParse(req.body);
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","The source, target, branch heads or conflict resolutions are invalid.",p.error.flatten());
+ const protection=await protectionForBranch(repo,p.data.target);if(protection?.requirePullRequest)throw new AppError(409,"PULL_REQUEST_REQUIRED","This target branch accepts merges only through an approved pull request.",{pattern:protection.pattern});
  const result=await withRepositoryLock(repo._id,()=>resolveMergeConflicts(repo._id,p.data.source,p.data.target,p.data.expectedHead,p.data.expectedSourceSha,p.data.resolutions,req.user));
  await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Resolved merge conflicts and merged "+p.data.source+" into "+p.data.target+".",result.mergeCommit);
  res.status(201).json({merged:true,result});
 }));
-router.post("/:id/commits",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({branch:z.string().min(1).max(160),path:z.string().min(1).max(500),content:z.string().max(1048576),message:z.string().trim().min(3).max(180)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Branch, path, content or commit message is invalid.");const commit=await withRepositoryLock(repo._id,()=>commitFile(repo._id,p.data.branch,p.data.path,p.data.content,p.data.message,req.user));await event(req.user._id,repo,"commit.created","repository",repo.name,"Committed "+p.data.path+" to "+p.data.branch+".",commit.sha);res.status(201).json({commit});}));
+router.post("/:id/commits",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({branch:z.string().min(1).max(160),path:z.string().min(1).max(500),content:z.string().max(1048576),message:z.string().trim().min(3).max(180)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Branch, path, content or commit message is invalid.");const protection=await protectionForBranch(repo,p.data.branch);if(protection?.requirePullRequest)throw new AppError(409,"DIRECT_PUSH_BLOCKED","This branch requires changes to be merged through an approved pull request.",{pattern:protection.pattern});
+ const commit=await withRepositoryLock(repo._id,()=>commitFile(repo._id,p.data.branch,p.data.path,p.data.content,p.data.message,req.user));await event(req.user._id,repo,"commit.created","repository",repo.name,"Committed "+p.data.path+" to "+p.data.branch+".",commit.sha);res.status(201).json({commit});}));
 router.get("/:id/issues",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const filter={repository:repo._id};if(["open","closed"].includes(req.query.status))filter.status=req.query.status;const issues=await Issue.find(filter).sort({number:-1}).limit(Math.min(100,Number(req.query.limit)||100)).populate("author","username displayName avatarUrl").populate("assignee","username displayName avatarUrl");res.json({issues});}));
 router.post("/:id/issues",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({title:z.string().trim().min(1).max(180),description:z.string().max(12000).optional().default(""),priority:z.enum(["low","medium","high","critical"]).default("medium"),labels:z.array(z.string().trim().min(1).max(30)).max(12).default([])}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Issue details are invalid.",p.error.flatten());const last=await Issue.findOne({repository:repo._id}).sort({number:-1}).select("number");const issue=await Issue.create({repository:repo._id,number:(last?.number||0)+1,...p.data,author:req.user._id});await event(req.user._id,repo,"issue.created","issue",issue.title,"Opened issue #"+issue.number+": "+issue.title+".",issue._id);res.status(201).json({issue:await Issue.findById(issue._id).populate("author","username displayName avatarUrl")});}));
 router.post("/:id/collaborators",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({username:z.string().trim().min(3).max(30).regex(/^[A-Za-z0-9_-]+$/),role:z.enum(["maintainer","developer","viewer"]).default("developer")}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a valid username and role.");const person=await User.findOne({username:p.data.username.toLowerCase()}).select("_id username displayName avatarUrl");if(!person)throw new AppError(404,"USER_NOT_FOUND","No CodeVault account has that username.");if(person._id.toString()===repo.owner._id.toString())throw new AppError(400,"OWNER_IS_NOT_COLLABORATOR","The owner already has full access.");try{const collaborator=await Collaborator.create({repository:repo._id,user:person._id,role:p.data.role,invitedBy:req.user._id,acceptedAt:new Date()});await event(req.user._id,repo,"collaborator.added","collaborator",person.username,"Added @"+person.username+" as "+p.data.role+".",person._id);res.status(201).json({collaborator:{...collaborator.toObject(),user:person}});}catch(e){if(e.code===11000)throw new AppError(409,"COLLABORATOR_EXISTS","That user already has access.");throw e;}}));

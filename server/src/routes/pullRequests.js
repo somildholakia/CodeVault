@@ -56,7 +56,7 @@ router.post("/:id/reviews",asyncHandler(async(req,res)=>{
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Review decision or comment is invalid.");
  const sourceBranch=(await listBranches(pr.repository._id)).find(item=>item.name===pr.sourceBranch);
  if(!sourceBranch)throw new AppError(409,"SOURCE_BRANCH_MISSING","The pull-request source branch no longer exists.");
- const existing=pr.reviews.find(x=>x.user.toString()===req.user._id.toString());
+ const existing=pr.reviews.find(x=>String(x.user?._id??x.user)===req.user._id.toString());
  if(existing){existing.decision=p.data.decision;existing.body=p.data.body;existing.submittedAt=new Date();existing.commitSha=sourceBranch.sha;}
  else pr.reviews.push({user:req.user._id,decision:p.data.decision,body:p.data.body,commitSha:sourceBranch.sha,submittedAt:new Date()});
  await pr.save();await record(req.user._id,pr,"pull_request.reviewed","Reviewed pull request #"+pr.number+" as "+p.data.decision+".");

@@ -223,3 +223,61 @@ export function isAddedDiffLine(diff, filePath, lineNumber) {
   }
   return false;
 }
+
+
+export async function deleteBranch(id, name, defaultBranch, expectedHead) {
+  const branch = safeRef(name);
+  const protectedDefault = safeRef(defaultBranch);
+  if (branch === protectedDefault) throw new AppError(409, "DEFAULT_BRANCH_PROTECTED", "The repository default branch cannot be deleted.");
+  if (typeof expectedHead !== "string" || !/^[a-f0-9]{40}$/i.test(expectedHead)) {
+    throw new AppError(400, "EXPECTED_HEAD_REQUIRED", "Refresh branches and provide the current branch head before deleting it.");
+  }
+  const root = repositoryPath(id);
+  const current = (await git(root, ["rev-parse", "--verify", "refs/heads/" + branch])).stdout.trim();
+  if (current !== expectedHead) throw new AppError(409, "BRANCH_MOVED", "The branch changed since it was loaded. Refresh and try again.");
+  // -d is deliberately used rather than -D: Git refuses to remove unmerged work.
+  await git(root, ["branch", "-d", "--", branch]);
+  return {name: branch, deletedHead: current};
+}
+
+export async function fileHistory(id, ref, file, limit = 50) {
+  const revision = safeRef(ref);
+  const target = safePath(file);
+  const count = Math.min(100, Math.max(1, Number(limit) || 50));
+  const format = "%H%x1f%an%x1f%aI%x1f%s";
+  const result = await git(repositoryPath(id), [
+    "log", "--follow", "--max-count=" + count, "--date=iso-strict",
+    "--format=" + format, revision, "--", target
+  ]);
+  return result.stdout.split(/\r?\n/).filter(Boolean).map(row => {
+    const [sha, author, date, ...message] = row.split(String.fromCharCode(31));
+    return {sha, author, date, message: message.join(String.fromCharCode(31))};
+  });
+}
+
+export async function fileBlame(id, ref, file) {
+  const revision = safeRef(ref);
+  const target = safePath(file);
+  const result = await git(repositoryPath(id), ["blame", "--line-porcelain", revision, "--", target]);
+  if (Buffer.byteLength(result.stdout, "utf8") > 2 * 1024 * 1024) {
+    throw new AppError(413, "BLAME_TOO_LARGE", "This file is too large for an interactive blame view.");
+  }
+  const rows = result.stdout.split(/\r?\n/);
+  const lines = [];
+  for (let index = 0; index < rows.length;) {
+    const header = rows[index].match(/^([a-f0-9]{40}) ([0-9]+) ([0-9]+)(?: ([0-9]+))?$/i);
+    if (!header) { index++; continue; }
+    const entry = {sha: header[1], originalLine: Number(header[2]), line: Number(header[3]), author: "", authorTime: null, content: ""};
+    index++;
+    while (index < rows.length && !rows[index].startsWith("\t")) {
+      const row = rows[index];
+      if (row.startsWith("author ")) entry.author = row.slice(7);
+      else if (row.startsWith("author-time ")) entry.authorTime = new Date(Number(row.slice(12)) * 1000).toISOString();
+      index++;
+    }
+    if (index < rows.length && rows[index].startsWith("\t")) entry.content = rows[index].slice(1);
+    lines.push(entry);
+    index++;
+  }
+  return {ref: revision, path: target, lines};
+}

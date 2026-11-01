@@ -87,7 +87,8 @@ test("builds a commit graph across branches with parent pointers and refs",async
  assert.ok(bySha.has(initial.sha));
  assert.deepEqual(bySha.get(feature.sha).parents,[initial.sha]);
  assert.deepEqual(bySha.get(main.sha).parents,[initial.sha]);
- assert.ok(bySha.get(initial.sha).refs.some(ref=>ref.name==="main"&&ref.type==="branch"));
+ assert.ok(bySha.get(main.sha).refs.some(ref=>ref.name==="main"&&ref.type==="branch"));
+ assert.ok(bySha.get(feature.sha).refs.some(ref=>ref.name==="feature/graph"&&ref.type==="branch"));
  assert.ok(graph.branches.some(item=>item.name==="feature/graph"));
 });
 

@@ -348,7 +348,7 @@ test("extracts only exact pinned Python requirements and normalizes package name
  const entries=dependencyScanner.extractPythonRequirements([
   "# production dependencies",
   "Requests==2.31.0",
-  "my_package==1.2.3",
+  "my_package==1.2.3 ; python_version >= '3.10'",
   "unpinned>=1.0",
   "editable-package @ git+https://example.com/repo.git",
   "Flask==3.0.0 # pinned"

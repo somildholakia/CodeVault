@@ -155,8 +155,8 @@ test("validates changed-line review anchors in a branch diff",()=>{
 test("tracks per-file history and line-level blame against a selected ref",async()=>{
  const id=await makeRepo();
  const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
- await git.commitFile(id,"main","src/history.js","export const first = true;\\n","Add first line",author);
- await git.commitFile(id,"main","src/history.js","export const first = true;\\nexport const second = true;\\n","Add second line",author);
+ await git.commitFile(id,"main","src/history.js","export const first = true;\n","Add first line",author);
+ await git.commitFile(id,"main","src/history.js","export const first = true;\nexport const second = true;\n","Add second line",author);
  const history=await git.fileHistory(id,"main","src/history.js",20);
  assert.equal(history.length,2);
  assert.match(history[0].message,/Add second line/);

@@ -21,6 +21,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Repository-scoped issues with status, priority, comments and collaborator assignment.
 - Workspace-wide issue inbox with safe text search, status/priority filters, personal scopes and pagination.
 - Release publishing with annotated Git tags, version notes and tag history.
+- Interactive commit DAG across branches, with parent/child navigation, read-only historical snapshots and commit-to-commit diffs.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
 - Activity history, Git-derived analytics and a short Git Learning Mode.

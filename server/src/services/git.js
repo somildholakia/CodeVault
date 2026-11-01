@@ -54,13 +54,13 @@ export async function searchCode(id, query, ref = "main", limit = 100) {
     if (error.code === 1) return {query: term, ref: revision, results: [], truncated: false};
     if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") truncated = true;
     else {
-      const detail = [error.stderr, error.stdout].filter(Boolean).map(String).join("\\n").trim();
+      const detail = [error.stderr, error.stdout].filter(Boolean).map(String).join(String.fromCharCode(10)).trim();
       throw new AppError(400, "GIT_SEARCH_FAILED", (detail || "Git could not search this revision.").slice(0, 700));
     }
   }
 
   const results = [];
-  for (const row of output.split(/\\r?\\n/)) {
+  for (const row of output.split(String.fromCharCode(10))) {
     if (!row) continue;
     const first = row.indexOf(":");
     const second = row.indexOf(":", first + 1);

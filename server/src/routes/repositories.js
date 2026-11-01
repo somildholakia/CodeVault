@@ -188,6 +188,8 @@ router.delete("/:id/branches",asyncHandler(async(req,res)=>{
  assertWrite(await roleFor(repo,req.user._id));
  const p=z.object({name:z.string().trim().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i)}).strict().safeParse(req.body);
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a branch name and its current head SHA.");
+ const protection=await protectionForBranch(repo,p.data.name);
+ if(protection?.preventDeletion)throw new AppError(409,"BRANCH_PROTECTED","This branch is protected from deletion.",{pattern:protection.pattern});
  const result=await withRepositoryLock(repo._id,()=>deleteBranch(repo._id,p.data.name,repo.defaultBranch,p.data.expectedHead));
  await event(req.user._id,repo,"branch.deleted","branch",result.name,"Deleted merged branch "+result.name+".",result.name);
  res.json({deleted:true,branch:result.name,deletedHead:result.deletedHead});

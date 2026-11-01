@@ -10,7 +10,7 @@ import Activity from "../models/Activity.js";
 import Release from "../models/Release.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
-import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,withRepositoryLock} from "../services/git.js";
+import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,uid){if(repo.owner._id.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -148,6 +148,26 @@ router.delete("/:id/branches",asyncHandler(async(req,res)=>{
 }));
 router.post("/:id/merge-preview",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose source and target branches.");res.json(await previewMerge(repo._id,p.data.source,p.data.target));}));
 router.post("/:id/merge",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose valid source and target branches.");const result=await withRepositoryLock(repo._id,()=>mergeBranches(repo._id,p.data.source,p.data.target,p.data.expectedHead));await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Merged "+p.data.source+" into "+p.data.target+".",p.data.source);res.json({merged:true,result});}));
+router.post("/:id/merge-resolve",asyncHandler(async(req,res)=>{
+ requireDurableStorage();
+ const repo=await getRepo(req.params.id);
+ assertManage(await roleFor(repo,req.user._id));
+ const p=z.object({
+  source:z.string().trim().min(1).max(160),
+  target:z.string().trim().min(1).max(160),
+  expectedHead:z.string().regex(/^[a-f0-9]{40}$/i),
+  expectedSourceSha:z.string().regex(/^[a-f0-9]{40}$/i),
+  resolutions:z.array(z.object({
+   path:z.string().trim().min(1).max(500),
+   content:z.string().max(1048576).optional(),
+   delete:z.boolean().optional()
+  }).strict()).max(50)
+ }).strict().safeParse(req.body);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","The source, target, branch heads or conflict resolutions are invalid.",p.error.flatten());
+ const result=await withRepositoryLock(repo._id,()=>resolveMergeConflicts(repo._id,p.data.source,p.data.target,p.data.expectedHead,p.data.expectedSourceSha,p.data.resolutions,req.user));
+ await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Resolved merge conflicts and merged "+p.data.source+" into "+p.data.target+".",result.mergeCommit);
+ res.status(201).json({merged:true,result});
+}));
 router.post("/:id/commits",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({branch:z.string().min(1).max(160),path:z.string().min(1).max(500),content:z.string().max(1048576),message:z.string().trim().min(3).max(180)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Branch, path, content or commit message is invalid.");const commit=await withRepositoryLock(repo._id,()=>commitFile(repo._id,p.data.branch,p.data.path,p.data.content,p.data.message,req.user));await event(req.user._id,repo,"commit.created","repository",repo.name,"Committed "+p.data.path+" to "+p.data.branch+".",commit.sha);res.status(201).json({commit});}));
 router.get("/:id/issues",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const filter={repository:repo._id};if(["open","closed"].includes(req.query.status))filter.status=req.query.status;const issues=await Issue.find(filter).sort({number:-1}).limit(Math.min(100,Number(req.query.limit)||100)).populate("author","username displayName avatarUrl").populate("assignee","username displayName avatarUrl");res.json({issues});}));
 router.post("/:id/issues",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({title:z.string().trim().min(1).max(180),description:z.string().max(12000).optional().default(""),priority:z.enum(["low","medium","high","critical"]).default("medium"),labels:z.array(z.string().trim().min(1).max(30)).max(12).default([])}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Issue details are invalid.",p.error.flatten());const last=await Issue.findOne({repository:repo._id}).sort({number:-1}).select("number");const issue=await Issue.create({repository:repo._id,number:(last?.number||0)+1,...p.data,author:req.user._id});await event(req.user._id,repo,"issue.created","issue",issue.title,"Opened issue #"+issue.number+": "+issue.title+".",issue._id);res.status(201).json({issue:await Issue.findById(issue._id).populate("author","username displayName avatarUrl")});}));

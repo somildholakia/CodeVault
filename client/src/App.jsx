@@ -1,10 +1,35 @@
 import {useEffect,useState} from "react";
 import {BrowserRouter,Link,NavLink,Route,Routes,useNavigate,useParams} from "react-router-dom";
-import {Activity,ArrowRight,ChevronRight,CircleDot,FolderGit2,GitBranch,GitCommitHorizontal,GitMerge,LayoutDashboard,LogOut,Plus,Search,ShieldCheck,Users,FileCode2,Code2,X,AlertCircle,LockKeyhole,Globe2,MessageSquare,UserPlus,Clock3,Check,RefreshCw,ChevronDown,GitPullRequest,Tag} from "lucide-react";
+import {Activity,ArrowRight,ChevronRight,CircleDot,FolderGit2,GitBranch,GitCommitHorizontal,GitMerge,LayoutDashboard,LogOut,Plus,Search,ShieldCheck,Users,FileCode2,Code2,X,AlertCircle,LockKeyhole,Globe2,MessageSquare,UserPlus,Clock3,Check,RefreshCw,ChevronDown,GitPullRequest,Tag,GitFork,ArrowLeftRight,History} from "lucide-react";
 import {api} from "./lib/api.js";
 const date=v=>v?new Date(v).toLocaleDateString():"—";
 const sha=v=>v?String(v).slice(0,7):"—";
-function Mark(){return <span className="mark"><GitBranch size={18}/></span>}
+
+function arrangeCommitGraph(commits){
+ const indexBySha=new Map(commits.map((commit,index)=>[commit.sha,index]));
+ const laneHeads=[],nodes=[],edges=[];
+ for(let index=0;index<commits.length;index++){
+  const commit=commits[index];
+  let lane=laneHeads.indexOf(commit.sha);
+  if(lane<0){lane=laneHeads.indexOf(null);if(lane<0)lane=laneHeads.length;laneHeads[lane]=commit.sha;}
+  laneHeads[lane]=null;
+  nodes.push({sha:commit.sha,lane,index});
+  for(let parentIndex=0;parentIndex<commit.parents.length;parentIndex++){
+   const parent=commit.parents[parentIndex],futureIndex=indexBySha.get(parent);
+   if(futureIndex===undefined||futureIndex<=index)continue;
+   let parentLane=laneHeads.indexOf(parent);
+   if(parentLane<0){
+    parentLane=parentIndex===0?lane:laneHeads.indexOf(null);
+    if(parentLane<0)parentLane=laneHeads.length;
+    laneHeads[parentLane]=parent;
+   }
+   edges.push({from:lane,to:parentLane,start:index,end:futureIndex,merge:parentIndex>0});
+  }
+ }
+ const laneCount=Math.max(1,laneHeads.length,...nodes.map(node=>node.lane+1));
+ return {nodes,edges,laneCount,width:laneCount*24+20,height:Math.max(1,commits.length)*56};
+}
+\nfunction Mark(){return <span className="mark"><GitBranch size={18}/></span>}
 function Spin(){return <span className="spinner"/>}
 function Btn({children,...props}){return <button className="btn dark" {...props}>{children}</button>}
 function Empty({title,body,action,onAction}){return <div className="empty"><FolderGit2 size={24}/><h3>{title}</h3><p>{body}</p>{action&&<button className="btn lime" onClick={onAction}>{action}<ArrowRight size={14}/></button>}</div>}
@@ -24,28 +49,28 @@ function RepoPage({notify}){
  const [selectedFile,setSelectedFile]=useState(""),[fileContent,setFileContent]=useState(""),[editing,setEditing]=useState(false),[commitMessage,setCommitMessage]=useState(""),[saving,setSaving]=useState(false);
  const [selectedCommit,setSelectedCommit]=useState(null),[diff,setDiff]=useState(""),[loadingDiff,setLoadingDiff]=useState(false);
  const [branchName,setBranchName]=useState(""),[branchBase,setBranchBase]=useState("main");
- const [codeQuery,setCodeQuery]=useState(""),[codeSearch,setCodeSearch]=useState(null),[searching,setSearching]=useState(false);
+ const [codeQuery,setCodeQuery]=useState(""),[codeSearch,setCodeSearch]=useState(null),[searching,setSearching]=useState(false);\n const const [graph,setGraph]=useState(null),[graphRef,setGraphRef]=useState("all"),[loadingGraph,setLoadingGraph]=useState(false),[graphCommit,setGraphCommit]=useState(null),[compareBase,setCompareBase]=useState(""),[compareTarget,setCompareTarget]=useState(""),[comparison,setComparison]=useState(null),[comparing,setComparing]=useState(false),[snapshotRef,setSnapshotRef]=useState("");
  const [releaseItems,setReleaseItems]=useState([]),[gitTags,setGitTags]=useState([]),[releaseName,setReleaseName]=useState(""),[releaseTag,setReleaseTag]=useState(""),[releaseNotes,setReleaseNotes]=useState(""),[releaseTarget,setReleaseTarget]=useState("main"),[publishingRelease,setPublishingRelease]=useState(false);
  const [mergeSource,setMergeSource]=useState(""),[mergeTarget,setMergeTarget]=useState("main"),[mergePreview,setMergePreview]=useState(null),[merging,setMerging]=useState(false);
  const [issueStatus,setIssueStatus]=useState("open"),[issueTitle,setIssueTitle]=useState(""),[issueDescription,setIssueDescription]=useState(""),[issuePriority,setIssuePriority]=useState("medium"),[expandedIssue,setExpandedIssue]=useState(null),[issueDetail,setIssueDetail]=useState(null),[comment,setComment]=useState("");
  const [memberUsername,setMemberUsername]=useState(""),[memberRole,setMemberRole]=useState("developer");
  const [pullRequests,setPullRequests]=useState([]),[selectedPr,setSelectedPr]=useState(null),[prDetail,setPrDetail]=useState(null),[prTitle,setPrTitle]=useState(""),[prDescription,setPrDescription]=useState(""),[prSource,setPrSource]=useState(""),[prTarget,setPrTarget]=useState("main"),[prDecision,setPrDecision]=useState("approved"),[prReviewBody,setPrReviewBody]=useState("");
  const [error,setError]=useState(""),[notice,setNotice]=useState(""),[loading,setLoading]=useState(true);
- const canWrite=["owner","maintainer","developer"].includes(permission),canManage=["owner","maintainer"].includes(permission);
+ const canWrite=["owner","maintainer","developer"].includes(permission),canManage=["owner","maintainer"].includes(permission);\n const activeRef = snapshotRef || branch;
  const loadBranches=async()=>{const r=await api.get("/repositories/"+id+"/branches");setBranches(r.data.branches||[]);};
- const loadFiles=async()=>{const r=await api.get("/repositories/"+id+"/files",{params:{ref:branch}});setFiles(r.data.files||[]);};
- const loadCommits=async()=>{const r=await api.get("/repositories/"+id+"/commits",{params:{ref:branch,limit:100}});setCommits(r.data.commits||[]);};
+ const loadFiles=async()=>{const r=await api.get("/repositories/"+id+"/files",{params:{ref:activeRef}});setFiles(r.data.files||[]);};
+ const loadCommits=async()=>{const r=await api.get("/repositories/"+id+"/commits",{params:{ref:activeRef,limit:100}});setCommits(r.data.commits||[]);};
  const loadIssues=async()=>{const r=await api.get("/repositories/"+id+"/issues",{params:{status:issueStatus}});setIssues(r.data.issues||[]);};
  const loadCollaborators=async()=>{const r=await api.get("/repositories/"+id+"/collaborators");setCollaborators(r.data.collaborators||[]);};
  const loadPullRequests=async()=>{const r=await api.get("/pull-requests",{params:{repository:id,limit:100}});setPullRequests(r.data.pullRequests||[]);};
  const loadReleases=async()=>{const r=await api.get("/repositories/"+id+"/releases");setReleaseItems(r.data.releases||[]);setGitTags(r.data.tags||[]);};
  useEffect(()=>{let active=true;setLoading(true);setError("");api.get("/repositories/"+id).then(async r=>{if(!active)return;setRepo(r.data.repository);setPermission(r.data.permission);setBranch(r.data.repository.defaultBranch||"main");setBranchBase(r.data.repository.defaultBranch||"main");setMergeTarget(r.data.repository.defaultBranch||"main");setReleaseTarget(r.data.repository.defaultBranch||"main");try{const b=await api.get("/repositories/"+id+"/branches");if(active)setBranches(b.data.branches||[]);}catch(e){if(active)setError(e.message);}}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[id]);
- useEffect(()=>{let active=true;Promise.all([api.get("/repositories/"+id+"/files",{params:{ref:branch}}),api.get("/repositories/"+id+"/commits",{params:{ref:branch,limit:100}})]).then(([f,c])=>{if(active){setFiles(f.data.files||[]);setCommits(c.data.commits||[]);}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[id,branch]);
+ useEffect(()=>{let active=true;Promise.all([api.get("/repositories/"+id+"/files",{params:{ref:activeRef}}),api.get("/repositories/"+id+"/commits",{params:{ref:activeRef,limit:100}})]).then(([f,c])=>{if(active){setFiles(f.data.files||[]);setCommits(c.data.commits||[]);}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[id,branch]);
  useEffect(()=>{if(tab==="issues")loadIssues().catch(e=>setError(e.message));if(tab==="collaborators")loadCollaborators().catch(e=>setError(e.message));if(tab==="pull-requests")loadPullRequests().catch(e=>setError(e.message));if(tab==="releases")loadReleases().catch(e=>setError(e.message));},[id,tab,issueStatus]);
- const openFile=async file=>{setSelectedFile(file.path);setEditing(false);setNotice("");setError("");try{const r=await api.get("/repositories/"+id+"/files/content",{params:{ref:branch,path:file.path}});setFileContent(r.data.content);setCommitMessage("Update "+file.path);}catch(e){setError(e.message);}};
+ const openFile=async file=>{setSelectedFile(file.path);setEditing(false);setNotice("");setError("");try{const r=await api.get("/repositories/"+id+"/files/content",{params:{ref:activeRef,path:file.path}});setFileContent(r.data.content);setCommitMessage("Update "+file.path);}catch(e){setError(e.message);}};
  const saveFile=async e=>{e.preventDefault();setSaving(true);setError("");setNotice("");try{const r=await api.post("/repositories/"+id+"/commits",{branch,path:selectedFile,content:fileContent,message:commitMessage});setEditing(false);setNotice("Committed "+selectedFile+" · "+sha(r.data.commit.sha));await Promise.all([loadFiles(),loadCommits()]);}catch(e){setError(e.message);}finally{setSaving(false);}};
  const inspectCommit=async c=>{setSelectedCommit(c);setLoadingDiff(true);setDiff("");try{const r=await api.get("/repositories/"+id+"/commits/"+c.sha+"/diff");setDiff(r.data.diff||"No textual diff was returned.");}catch(e){setError(e.message);}finally{setLoadingDiff(false);}};
- const runCodeSearch=async e=>{e.preventDefault();if(!codeQuery.trim())return;setSearching(true);setError("");setCodeSearch(null);try{const r=await api.get("/repositories/"+id+"/search",{params:{q:codeQuery,ref:branch,limit:200}});setCodeSearch(r.data);}catch(e){setError(e.message);}finally{setSearching(false);}};
+ const loadGraph=async()=>{setLoadingGraph(true);setError("");try{const r=await api.get("/repositories/"+id+"/graph",{params:{ref:graphRef,limit:200}});setGraph(r.data);}catch(e){setError(e.message);}finally{setLoadingGraph(false);}};\n useEffect(()=>{if(tab==="graph")loadGraph();},[id,tab,graphRef]);\n const selectGraphCommit=commit=>{setGraphCommit(commit);setCompareTarget(commit.sha);setCompareBase(commit.parents?.[0]||"");inspectCommit(commit);};\n const compareSelectedCommits=async e=>{e.preventDefault();if(!compareBase||!compareTarget||compareBase===compareTarget)return;setComparing(true);setError("");setComparison(null);try{const r=await api.get("/repositories/"+id+"/compare",{params:{base:compareBase,target:compareTarget}});setComparison(r.data);}catch(e){setError(e.message);}finally{setComparing(false);}};\n const browseCommitSnapshot=async commit=>{setSnapshotRef(commit.sha);setSelectedFile("");setFileContent("");setEditing(false);setTab("files");};\n const runCodeSearch=async e=>{e.preventDefault();if(!codeQuery.trim())return;setSearching(true);setError("");setCodeSearch(null);try{const r=await api.get("/repositories/"+id+"/search",{params:{q:codeQuery,ref:branch,limit:200}});setCodeSearch(r.data);}catch(e){setError(e.message);}finally{setSearching(false);}};
 
  const createBranch=async e=>{e.preventDefault();setError("");try{await api.post("/repositories/"+id+"/branches",{name:branchName,base:branchBase});setBranchName("");await loadBranches();setNotice("Created branch "+branchName+".");}catch(e){setError(e.message);}};
  const runMergePreview=async e=>{e.preventDefault();setError("");setMergePreview(null);try{const r=await api.post("/repositories/"+id+"/merge-preview",{source:mergeSource,target:mergeTarget});setMergePreview(r.data);}catch(e){setError(e.message);}};
@@ -65,7 +90,7 @@ function RepoPage({notify}){
  if(loading)return <div className="loading"><Spin/>Loading repository…</div>;
  if(error&&!repo)return <div className="page"><div className="error"><AlertCircle size={15}/>{error}</div><Link className="text-link" to="/repositories">Back to repositories</Link></div>;
  if(!repo)return <div className="loading"><Spin/>Loading repository…</div>;
- const tabs=[["overview","Overview"],["files","Files"],["search","Code search"],["commits","Commits"],["releases","Releases"],["branches","Branches"],["merge","Merge"],["pull-requests","Pull requests"],["issues","Issues"],["collaborators","People"]];
+ const tabs=[["overview","Overview"],["files","Files"],["search","Code search"],["commits","Commits"],["graph","History graph"],["releases","Releases"],["branches","Branches"],["merge","Merge"],["pull-requests","Pull requests"],["issues","Issues"],["collaborators","People"]];
  return <div className="page">
   <div className="repo-crumb"><Link to="/repositories">Repositories</Link><ChevronRight size={13}/><b>{repo.name}</b><span className="badge">{repo.visibility}</span></div>
   <div className="repo-title"><span className="repo-icon"><FolderGit2 size={22}/></span><div><h1>{repo.name}</h1><p>{repo.description||"Source, version history, and project work."}</p><small>Owned by {repo.owner?.username||"member"} · default branch {repo.defaultBranch}</small></div></div>
@@ -81,7 +106,7 @@ function RepoPage({notify}){
     <div className="tip"><b>QUICK START</b><p>Clone your repository to work locally with Git.</p><code>git clone &lt;repository-url&gt;</code></div>
    </div>
   </div>}
-  {tab==="files"&&<Panel title="Source files" detail="Read or edit a committed text file."><div className="file-toolbar"><label className="branch-select"><GitBranch size={14}/><select value={branch} onChange={e=>{setBranch(e.target.value);setSelectedFile("");setEditing(false);}}>{branches.map(b=><option key={b.name} value={b.name}>{b.name}</option>)}</select><ChevronDown size={13}/></label><span className="note">{files.length} tracked files</span></div><div className="file-browser"><div className="file-list">{files.length?files.map(f=><button key={f.path} className={selectedFile===f.path?"selected":""} onClick={()=>openFile(f)}><FileCode2 size={14}/>{f.path}</button>):<p>No tracked files on this branch.</p>}</div><div className="file-view"><div className="file-head"><FileCode2 size={14}/>{selectedFile||"Select a file"}<span className="badge">GIT REF</span></div>{selectedFile?(editing?<form className="form file-editor" onSubmit={saveFile}><label>File contents<textarea value={fileContent} onChange={e=>setFileContent(e.target.value)} rows="18" spellCheck="false" required/></label><label>Commit message<input value={commitMessage} onChange={e=>setCommitMessage(e.target.value)} minLength="3" maxLength="180" required/></label><div className="edit-actions"><button type="button" className="btn outline small" onClick={()=>setEditing(false)}>Cancel</button><button className="btn dark small" disabled={saving}>{saving&&<Spin/>}Commit changes <GitCommitHorizontal size={14}/></button></div></form>:<><pre>{fileContent}</pre>{canWrite&&<div className="file-actions"><button className="btn dark small" onClick={()=>setEditing(true)}>Edit and commit <GitCommitHorizontal size={14}/></button></div>}</>):<div className="file-placeholder"><Code2 size={24}/><b>Pick a file to inspect it</b><p>Content is read directly from the selected Git ref.</p></div>}</div></div></Panel>}
+  {tab==="files"&&<Panel title="Source files" detail={snapshotRef?"Read-only historical commit snapshot.":"Read or edit a committed text file."}>{snapshotRef&&<div className="snapshot-banner"><History size={14}/><span>Browsing historical snapshot <code>{sha(snapshotRef)}</code></span><button className="text-link" onClick={()=>{setSnapshotRef("");setSelectedFile("");setFileContent("");setEditing(false);}}>Return to {branch}</button></div>}<div className="file-toolbar"><label className="branch-select"><GitBranch size={14}/><select value={branch} onChange={e=>{setSnapshotRef("");setBranch(e.target.value);setSelectedFile("");setEditing(false);}} disabled={Boolean(snapshotRef)}>{branches.map(b=><option key={b.name} value={b.name}>{b.name}</option>)}</select><ChevronDown size={13}/></label><span className="note">{files.length} tracked files</span></div><div className="file-browser"><div className="file-list">{files.length?files.map(f=><button key={f.path} className={selectedFile===f.path?"selected":""} onClick={()=>openFile(f)}><FileCode2 size={14}/>{f.path}</button>):<p>No tracked files on this branch.</p>}</div><div className="file-view"><div className="file-head"><FileCode2 size={14}/>{selectedFile||"Select a file"}<span className="badge">{snapshotRef?"SNAPSHOT":"GIT REF"}</span></div>{selectedFile?(editing?<form className="form file-editor" onSubmit={saveFile}><label>File contents<textarea value={fileContent} onChange={e=>setFileContent(e.target.value)} rows="18" spellCheck="false" required/></label><label>Commit message<input value={commitMessage} onChange={e=>setCommitMessage(e.target.value)} minLength="3" maxLength="180" required/></label><div className="edit-actions"><button type="button" className="btn outline small" onClick={()=>setEditing(false)}>Cancel</button><button className="btn dark small" disabled={saving}>{saving&&<Spin/>}Commit changes <GitCommitHorizontal size={14}/></button></div></form>:<><pre>{fileContent}</pre>{canWrite&&!snapshotRef&&<div className="file-actions"><button className="btn dark small" onClick={()=>setEditing(true)}>Edit and commit <GitCommitHorizontal size={14}/></button></div>}</>):<div className="file-placeholder"><Code2 size={24}/><b>Pick a file to inspect it</b><p>Content is read directly from the selected Git ref.</p></div>}</div></div></Panel>}
   {tab==="search"&&<Panel title="Search source code" detail="Find an exact phrase across tracked text files in the selected Git branch.">
    <form className="form code-search-form" onSubmit={runCodeSearch}>
     <label>Search phrase<input value={codeQuery} onChange={e=>setCodeQuery(e.target.value)} maxLength="100" placeholder="Function name, variable, text or exact phrase…" required/></label>
@@ -101,6 +126,49 @@ function RepoPage({notify}){
    <p className="note">Search reads committed text from Git. Binary files and untracked working files are excluded.</p>
   </Panel>}
   {tab==="commits"&&<><Panel title="Commit history" detail="Every entry comes from the Git object database."><div className="file-toolbar"><label className="branch-select"><GitBranch size={14}/><select value={branch} onChange={e=>{setBranch(e.target.value);setSelectedCommit(null);}}>{branches.map(b=><option value={b.name} key={b.name}>{b.name}</option>)}</select></label><span className="note">{commits.length} commits loaded</span></div>{commits.length?commits.map(c=><button className="commit clickable" key={c.sha} onClick={()=>inspectCommit(c)}><GitCommitHorizontal size={16}/><span><b>{c.message}</b><small>{c.author} · {date(c.date)}</small></span><code>{sha(c.sha)}</code></button>):<Empty title="No commits found" body="This branch has no visible history yet."/>}</Panel>{selectedCommit&&<Panel title="Commit diff" detail={selectedCommit.message}><div className="diff-meta"><span>{selectedCommit.author}</span><code>{selectedCommit.sha}</code><button className="text-link" onClick={()=>{setSelectedCommit(null);setDiff("");}}>Close</button></div>{loadingDiff?<div className="loading"><Spin/>Loading actual Git diff…</div>:<pre className="diff-view">{diff}</pre>}</Panel>}</>}
+
+  {tab==="graph"&&<div className="stack">
+   <Panel title="Commit graph" detail="Follow the real Git commit DAG across branches, merges and tags. Select any node to inspect its history.">
+    <div className="file-toolbar graph-toolbar">
+     <label className="branch-select"><GitBranch size={14}/><select value={graphRef} onChange={e=>{setGraphRef(e.target.value);setGraphCommit(null);setComparison(null);}}><option value="all">All branches</option>{branches.map(item=><option key={item.name} value={item.name}>{item.name}</option>)}</select><ChevronDown size={13}/></label>
+     <span className="note">{graph?.commits?.length||0} commits · {graph?.branches?.length||0} branches · {graph?.tags?.length||0} tags</span>
+     <button className="btn outline small" onClick={loadGraph} disabled={loadingGraph}><RefreshCw size={13}/> Refresh</button>
+    </div>
+    {loadingGraph?<div className="loading"><Spin/>Loading real Git history…</div>:graph?.commits?.length?(()=>{
+      const layout=arrangeCommitGraph(graph.commits);
+      const selectedSha=graphCommit?.sha;
+      return <div className="commit-graph-scroll"><div className="commit-graph-grid" style={{gridTemplateColumns:layout.width+"px minmax(0,1fr)"}}>
+       <svg className="commit-graph-svg" width={layout.width} height={layout.height} viewBox={"0 0 "+layout.width+" "+layout.height} role="img" aria-label="Commit graph with parent relationships">
+        {layout.edges.map((edge,i)=>{const x1=12+edge.from*24,x2=12+edge.to*24,y1=edge.start*56+28,y2=edge.end*56+28,mid=(y1+y2)/2;return <path key={"edge-"+i} d={"M "+x1+" "+y1+" C "+x1+" "+mid+", "+x2+" "+mid+", "+x2+" "+y2} className={edge.merge?"graph-edge merge":"graph-edge"}/>;})}
+        {layout.nodes.map(node=><circle key={node.sha} cx={12+node.lane*24} cy={node.index*56+28} r={selectedSha===node.sha?7:5} className={selectedSha===node.sha?"graph-node selected":"graph-node"}/>)}
+       </svg>
+       <div className="commit-graph-rows">{graph.commits.map((commit,i)=><button key={commit.sha} className={graphCommit?.sha===commit.sha?"graph-commit selected":"graph-commit"} style={{height:56}} onClick={()=>selectGraphCommit(commit)}>
+        <span className="graph-commit-main"><b>{commit.message||"Untitled commit"}</b><small>{commit.author} · {date(commit.date)}</small></span>
+        <span className="graph-commit-meta">{commit.refs?.map(ref=><span className={"graph-ref "+ref.type} key={ref.type+ref.name}>{ref.type==="branch"?<GitBranch size={10}/>:<Tag size={10}/>} {ref.name}</span>)}<code>{sha(commit.sha)}</code></span>
+       </button>)}</div>
+      </div></div>;
+    })():<Empty title="No commit history found" body="Create a commit or choose another branch to inspect its history."/>}
+    {graph?.truncated&&<p className="note">Showing the newest 200 commits. Choose a branch to focus the history on a smaller range.</p>}
+   </Panel>
+   {graphCommit&&<Panel title="Selected commit" detail={graphCommit.message}>
+    <div className="selected-commit-meta"><span><GitCommitHorizontal size={16}/>{graphCommit.author}</span><span><Clock3 size={14}/>{graphCommit.date?new Date(graphCommit.date).toLocaleString():"—"}</span><code>{graphCommit.sha}</code></div>
+    <div className="graph-navigation">
+     <div><small>PARENT COMMITS · GO BACK</small>{graphCommit.parents?.length?graphCommit.parents.map(parent=><button className="text-link" key={parent} onClick={()=>{const item=graph?.commits.find(c=>c.sha===parent);if(item)selectGraphCommit(item);}}>{sha(parent)} <ArrowRight size={12}/></button>):<span className="note">Initial commit</span>}</div>
+     <div><small>CHILD COMMITS · GO FORWARD</small>{graph?.commits.filter(item=>item.parents?.includes(graphCommit.sha)).length?graph.commits.filter(item=>item.parents?.includes(graphCommit.sha)).map(item=><button className="text-link" key={item.sha} onClick={()=>selectGraphCommit(item)}>{sha(item.sha)} · {item.message}</button>):<span className="note">No newer commits in this graph window</span>}</div>
+    </div>
+    <div className="graph-commit-actions"><button className="btn dark small" onClick={()=>browseCommitSnapshot(graphCommit)}><FileCode2 size={14}/> Browse this snapshot</button><button className="btn outline small" onClick={()=>{setTab("commits");setSelectedCommit(graphCommit);}}><GitCommitHorizontal size={14}/> Open commit diff</button></div>
+    {loadingDiff?<div className="loading"><Spin/>Loading commit diff…</div>:<pre className="diff-view graph-diff">{diff||"No textual diff was returned for this commit."}</pre>}
+   </Panel>}
+   <Panel title="Compare any two commits" detail="Choose a base and target to inspect the exact file changes between snapshots.">
+    <form className="form compare-form" onSubmit={compareSelectedCommits}>
+     <label>Base commit<select value={compareBase} onChange={e=>{setCompareBase(e.target.value);setComparison(null);}}><option value="">Choose base</option>{(graph?.commits||[]).map(item=><option key={item.sha} value={item.sha}>{sha(item.sha)} · {item.message}</option>)}</select></label>
+     <ArrowLeftRight size={17}/>
+     <label>Target commit<select value={compareTarget} onChange={e=>{setCompareTarget(e.target.value);setComparison(null);}}><option value="">Choose target</option>{(graph?.commits||[]).map(item=><option key={item.sha} value={item.sha}>{sha(item.sha)} · {item.message}</option>)}</select></label>
+     <button className="btn dark small" disabled={comparing||!compareBase||!compareTarget||compareBase===compareTarget}>{comparing?<Spin/>:<GitFork size={14}/>} Compare commits</button>
+    </form>
+    {comparison&&<><div className="diff-meta"><span>Base <code>{sha(comparison.base)}</code></span><span>Target <code>{sha(comparison.target)}</code></span><button className="text-link" onClick={()=>setComparison(null)}>Clear</button></div><pre className="diff-view">{comparison.diff||"No differences between these commits."}</pre></>}
+   </Panel>
+  </div>}
   {tab==="branches"&&<div className="repo-layout">
    <Panel title="Branches" detail="Named refs pointing to real Git commits.">{branches.map(b=><div className="branch-row" key={b.name}><GitBranch size={15}/><div><b>{b.name}</b><small>{sha(b.sha)}</small></div>{b.name===repo.defaultBranch&&<span className="badge">Default</span>}</div>)}</Panel>
    <Panel title="Create a branch" detail="Start a focused line of work."><form className="form" onSubmit={createBranch}><label>Branch name<input value={branchName} onChange={e=>setBranchName(e.target.value)} placeholder="feature/search" pattern="[A-Za-z0-9_./-]+" maxLength="120" required/></label><label>Start from<select value={branchBase} onChange={e=>setBranchBase(e.target.value)}>{branches.map(b=><option key={b.name} value={b.name}>{b.name}</option>)}</select></label><button className="btn dark full" disabled={!canWrite}><Plus size={14}/>Create branch</button></form></Panel>

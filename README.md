@@ -17,7 +17,8 @@ A version-control and collaboration workspace for student development teams. Cod
 - Public/private repository metadata and server-side owner/collaborator permission checks.
 - File browsing, in-browser text editing, commit creation, history and commit diffs.
 - Branch creation, merge preview, conflict detection and guarded native Git merge.
-- Repository-scoped issues with status, priority, comments and assignment-ready schema.
+- Repository-scoped issues with status, priority, comments and collaborator assignment.
+- Workspace-wide issue inbox with safe text search, status/priority filters, personal scopes and pagination.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
 - Activity history, Git-derived analytics and a short Git Learning Mode.

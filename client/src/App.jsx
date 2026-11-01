@@ -38,7 +38,7 @@ function parseReviewDiff(diff){
   if(raw.startsWith("+++ b/")){path=raw.slice(6);insideHunk=false;rows.push({type:"meta",text:raw,path});continue;}
   if(raw.startsWith("diff --git ")){insideHunk=false;rows.push({type:"meta",text:raw,path:""});continue;}
   if(raw.startsWith("@@ ")){
-   const hunk=raw.match(/\\+([0-9]+)(?:,([0-9]+))? @@/);
+   const hunk=raw.match(/\+([0-9]+)(?:,([0-9]+))? @@/);
    newLine=hunk?Number(hunk[1]):0;insideHunk=Boolean(hunk);
    rows.push({type:"meta",text:raw,path});continue;
   }
@@ -78,7 +78,7 @@ function RepoPage({notify}){
  const [issueStatus,setIssueStatus]=useState("open"),[issueTitle,setIssueTitle]=useState(""),[issueDescription,setIssueDescription]=useState(""),[issuePriority,setIssuePriority]=useState("medium"),[expandedIssue,setExpandedIssue]=useState(null),[issueDetail,setIssueDetail]=useState(null),[comment,setComment]=useState("");
  const [memberUsername,setMemberUsername]=useState(""),[memberRole,setMemberRole]=useState("developer");
  const [pullRequests,setPullRequests]=useState([]),[selectedPr,setSelectedPr]=useState(null),[prDetail,setPrDetail]=useState(null),[prTitle,setPrTitle]=useState(""),[prDescription,setPrDescription]=useState(""),[prSource,setPrSource]=useState(""),[prTarget,setPrTarget]=useState("main"),[prDecision,setPrDecision]=useState("approved"),[prReviewBody,setPrReviewBody]=useState("");
- const const [prDiff,setPrDiff]=useState(""),[prDiffSha,setPrDiffSha]=useState(""),[prDiffLoading,setPrDiffLoading]=useState(false),[prCommentPath,setPrCommentPath]=useState(""),[prCommentLine,setPrCommentLine]=useState(0),[prCommentBody,setPrCommentBody]=useState(""),[prCommentBusy,setPrCommentBusy]=useState(false),[prReverting,setPrReverting]=useState(false);
+ const [prDiff,setPrDiff]=useState(""),[prDiffSha,setPrDiffSha]=useState(""),[prDiffLoading,setPrDiffLoading]=useState(false),[prCommentPath,setPrCommentPath]=useState(""),[prCommentLine,setPrCommentLine]=useState(0),[prCommentBody,setPrCommentBody]=useState(""),[prCommentBusy,setPrCommentBusy]=useState(false),[prReverting,setPrReverting]=useState(false);
  const [error,setError]=useState(""),[notice,setNotice]=useState(""),[loading,setLoading]=useState(true);
  const canWrite=["owner","maintainer","developer"].includes(permission),canManage=["owner","maintainer"].includes(permission);
  const activeRef = snapshotRef || branch;
@@ -160,7 +160,7 @@ function RepoPage({notify}){
    {codeSearch?.truncated&&<p className="note">Showing the first {codeSearch.results.length} matches. Refine your phrase to narrow the results.</p>}
    <p className="note">Search reads committed text from Git. Binary files and untracked working files are excluded.</p>
   </Panel>}
-  {tab==="commits"&&<><Panel title="Commit history" detail="Every entry comes from the Git object database."><div className="file-toolbar"><label className="branch-select"><GitBranch size={14}/><select value={branch} onChange={e=>{setBranch(e.target.value);setSelectedCommit(null);}}>{branches.map(b=><option value={b.name} key={b.name}>{b.name}</option>)}</select></label><span className="note">{commits.length} commits loaded</span></div>{commits.length?commits.map(c=><button className="commit clickable" key={c.sha} onClick={()=>inspectCommit(c)}><GitCommitHorizontal size={16}/><span><b>{c.message}</b><small>{c.author} · {date(c.date)}</small></span><code>{sha(c.sha)}</code></button>):<Empty title="No commits found" body="This branch has no visible history yet."/>}</Panel>{selectedCommit&&<Panel title="Commit diff" detail={selectedCommit.message}><div className="diff-meta"><span>{selectedCommit.author}</span><code>{selectedCommit.sha}</code><button className="text-link" onClick={()=>{setSelectedCommit(null);setDiff("");}}>Close</button></div>{loadingDiff?<div className="loading"><Spin/>Loading actual Git diff…</div>:<pre className="diff-view">{diff}</pre>}</Panel>}</>}
+  {tab==="commits"&&<><Panel title="Commit history" detail="Every entry comes from the Git object database."><div className="file-toolbar"><label className="branch-select"><GitBranch size={14}/><select value={branch} onChange={e=>{setBranch(e.target.value);setSelectedCommit(null);}}>{branches.map(b=><option value={b.name} key={b.name}>{b.name}</option>)}</select></label><span className="note">{commits.length} commits loaded</span></div>{commits.length?commits.map(c=><button className="commit clickable" key={c.sha} onClick={()=>inspectCommit(c)}><GitCommitHorizontal size={16}/><span><b>{c.message}</b><small>{c.author} · {date(c.date)}</small></span><code>{sha(c.sha)}</code></button>):<Empty title="No commits found" body="This branch has no visible history yet."/>}</Panel>{selectedCommit&&<Panel title="Commit diff" detail={selectedCommit.message}><div className="diff-meta"><span>{selectedCommit.author}</span><code>{selectedCommit.sha}</code><button className="text-link" onClick={()=>{setSelectedCommit(null);setDiff("");}}>Close</button>{canWrite&&<button className="btn outline small" onClick={()=>revertSelectedCommit(selectedCommit)} disabled={prReverting}><RefreshCw size={13}/>Revert commit</button>}</div>{loadingDiff?<div className="loading"><Spin/>Loading actual Git diff…</div>:<pre className="diff-view">{diff}</pre>}</Panel>}</>}
 
   {tab==="graph"&&<div className="stack">
    <Panel title="Commit graph" detail="Follow the real Git commit DAG across branches, merges and tags. Select any node to inspect its history.">
@@ -191,7 +191,7 @@ function RepoPage({notify}){
      <div><small>PARENT COMMITS · GO BACK</small>{graphCommit.parents?.length?graphCommit.parents.map(parent=><button className="text-link" key={parent} onClick={()=>{const item=graph?.commits.find(c=>c.sha===parent);if(item)selectGraphCommit(item);}}>{sha(parent)} <ArrowRight size={12}/></button>):<span className="note">Initial commit</span>}</div>
      <div><small>CHILD COMMITS · GO FORWARD</small>{graph?.commits.filter(item=>item.parents?.includes(graphCommit.sha)).length?graph.commits.filter(item=>item.parents?.includes(graphCommit.sha)).map(item=><button className="text-link" key={item.sha} onClick={()=>selectGraphCommit(item)}>{sha(item.sha)} · {item.message}</button>):<span className="note">No newer commits in this graph window</span>}</div>
     </div>
-    <div className="graph-commit-actions"><button className="btn dark small" onClick={()=>browseCommitSnapshot(graphCommit)}><FileCode2 size={14}/> Browse this snapshot</button><button className="btn outline small" onClick={()=>{setTab("commits");setSelectedCommit(graphCommit);}}><GitCommitHorizontal size={14}/> Open commit diff</button></div>
+    <div className="graph-commit-actions"><button className="btn dark small" onClick={()=>browseCommitSnapshot(graphCommit)}><FileCode2 size={14}/> Browse this snapshot</button><button className="btn outline small" onClick={()=>{setTab("commits");setSelectedCommit(graphCommit);}}><GitCommitHorizontal size={14}/> Open commit diff</button>{canWrite&&<button className="btn outline small" onClick={()=>revertSelectedCommit(graphCommit)} disabled={prReverting}><RefreshCw size={13}/> Revert on {branch}</button>}</div>
     {loadingDiff?<div className="loading"><Spin/>Loading commit diff…</div>:<pre className="diff-view graph-diff">{diff||"No textual diff was returned for this commit."}</pre>}
    </Panel>}
    <Panel title="Compare any two commits" detail="Choose a base and target to inspect the exact file changes between snapshots.">
@@ -219,6 +219,25 @@ function RepoPage({notify}){
    </Panel>
    {prDetail&&<Panel title={"#"+prDetail.number+" · "+prDetail.title} detail={prDetail.sourceBranch+" → "+prDetail.targetBranch+" · "+prDetail.status}>
     <p className="pr-description">{prDetail.description||"No description provided."}</p>
+    <section className="inline-review-workspace">
+     <div className="inline-review-heading"><div><b>Changed lines</b><small>Select an added line to leave a review comment.</small></div><button className="btn outline small" onClick={refreshPrDiff} disabled={prDiffLoading}><RefreshCw size={13}/> Refresh diff</button></div>
+     {prDiffLoading?<div className="loading"><Spin/>Loading pull-request changes…</div>:prDiff?<div className="pr-diff-view">{parseReviewDiff(prDiff).map((row,index)=>row.type==="added"?<button type="button" key={index} className={"pr-diff-line added"+(prCommentPath===row.path&&prCommentLine===row.line?" selected":"")} onClick={()=>{setPrCommentPath(row.path);setPrCommentLine(row.line);}}>
+      <span>+</span><small>{row.line}</small><code>{row.text||" "}</code><em>Comment</em>
+     </button>:<div className={"pr-diff-line "+row.type} key={index}><span>{row.type==="removed"?"−":""}</span><small>{row.line||""}</small><code>{row.text||" "}</code></div>)}</div>:<Empty title="No textual changes available" body="The source and target branches may be identical, or the diff may contain only binary changes."/>}
+     {prCommentPath&&permission&&<form className="form inline-comment-form" onSubmit={submitInlineComment}>
+      <div><b>Comment on {prCommentPath}:{prCommentLine}</b><button type="button" className="text-link" onClick={()=>{setPrCommentPath("");setPrCommentLine(0);}}>Cancel</button></div>
+      <label>Review comment<textarea value={prCommentBody} onChange={e=>setPrCommentBody(e.target.value)} rows="3" maxLength="5000" placeholder="Explain what should change or ask a question…" required/></label>
+      <button className="btn dark small" disabled={prCommentBusy||!prCommentBody.trim()}>{prCommentBusy?<Spin/>:<MessageSquare size={14}/>} Add inline comment</button>
+     </form>}
+     <div className="inline-threads"><div className="inline-review-heading"><div><b>Review threads</b><small>{prDetail.reviewThreads?.filter(thread=>!thread.resolved).length||0} unresolved</small></div></div>
+      {prDetail.reviewThreads?.length?prDetail.reviewThreads.map(thread=><article className={"inline-thread"+(thread.resolved?" resolved":"")} key={thread._id}>
+       <div><b>@{thread.author?.username||"member"}</b><code>{thread.path}:{thread.line}</code><span className="badge">{thread.resolved?"Resolved":"Open"}</span></div>
+       <p>{thread.body}</p>
+       <small>{date(thread.createdAt)}{thread.resolvedBy?.username?" · resolved by @"+thread.resolvedBy.username:""}</small>
+       {permission&&<button className="text-link" onClick={()=>toggleInlineThread(thread)}>{thread.resolved?"Reopen thread":"Resolve thread"}</button>}
+      </article>):<p className="note">No line-level discussions yet. Select an added line above to start one.</p>}
+     </div>
+    </section>
     <div className="review-list"><b>Reviews</b>{prDetail.reviews?.length?prDetail.reviews.map((review,i)=><div className="review-row" key={review.user?._id||i}><span className="badge">{review.decision.replace("_"," ")}</span><b>@{review.user?.username||"reviewer"}</b><small>{date(review.submittedAt)}</small>{review.body&&<p>{review.body}</p>}</div>):<p className="note">No reviews submitted yet. A collaborator must approve before merge.</p>}</div>
     {prDetail.status==="open"&&<form className="form pr-review-form" onSubmit={reviewPullRequest}><label>Your review<select value={prDecision} onChange={e=>setPrDecision(e.target.value)}><option value="approved">Approve</option><option value="changes_requested">Request changes</option><option value="commented">Comment</option></select></label><label>Review note<textarea value={prReviewBody} onChange={e=>setPrReviewBody(e.target.value)} rows="2" maxLength="5000" placeholder="Feedback for the author (optional)."/></label><button className="btn outline small"><MessageSquare size={14}/>Submit review</button></form>}
     {prDetail.mergeCommit&&<p className="note">Merged commit: <code>{prDetail.mergeCommit}</code></p>}

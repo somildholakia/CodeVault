@@ -62,15 +62,15 @@ export async function searchCode(id, query, ref = "main", limit = 100) {
   const results = [];
   for (const row of output.split(String.fromCharCode(10))) {
     if (!row) continue;
-    const first = row.indexOf(":");
-    const second = row.indexOf(":", first + 1);
-    if (first < 1 || second < 0) continue;
-    const line = Number(row.slice(first + 1, second));
+    // git grep prefixes results with the revision when a tree-ish is searched.
+    const match = row.match(/^[^:]+:(.+):([0-9]+):(.*)$/);
+    if (!match) continue;
+    const line = Number(match[2]);
     if (!Number.isInteger(line) || line < 1) continue;
     results.push({
-      path: row.slice(0, first),
+      path: match[1],
       line,
-      snippet: row.slice(second + 1).slice(0, 500)
+      snippet: match[3].slice(0, 500)
     });
   }
   truncated = truncated || results.length > maxResults;

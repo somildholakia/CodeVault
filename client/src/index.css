@@ -102,3 +102,19 @@
 .code-result-path small{margin-left:auto;color:var(--muted);font-size:9px;white-space:nowrap}
 .code-result>code{display:block;max-width:100%;overflow:auto;padding:7px 9px;border-radius:6px;background:#f5f3ec;color:#55574c;font:9px/1.6 ui-monospace,monospace;white-space:pre}
 @media(max-width:620px){.code-search-controls{align-items:stretch;flex-direction:column}.code-search-controls .branch-select{width:100%}.code-search-controls .btn{width:100%;justify-content:center}}
+
+
+/* Annotated releases and version tags */
+.release-form{padding:13px;border:1px solid var(--line);border-radius:9px;background:#faf9f3}
+.release-card{padding:13px 0;border-bottom:1px solid #f0ede5}
+.release-card:last-child{border-bottom:0}
+.release-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.release-card-head>span{display:flex;align-items:center;gap:8px;color:#718334}
+.release-card-head b{font-size:11px;color:var(--ink)}
+.release-card-head>code{padding:4px 7px;border:1px solid var(--line);border-radius:5px;background:#f5f3ec;color:#626456;font:9px ui-monospace,monospace}
+.release-card>p{margin:9px 0;color:#77796d;font-size:10px;line-height:1.65;white-space:pre-wrap}
+.release-card>small{color:#999a8e;font-size:9px}
+.tag-row{display:grid;grid-template-columns:16px minmax(0,1fr) max-content;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f0ede5;color:#718334}
+.tag-row b{color:var(--ink);font-size:10px;overflow-wrap:anywhere}
+.tag-row code{font:9px ui-monospace,monospace;color:#85867a}
+.tag-row small{grid-column:2/-1;color:#999a8e;font-size:9px}

@@ -7,9 +7,10 @@ import Repository from "../models/Repository.js";
 import Collaborator from "../models/Collaborator.js";
 import Issue from "../models/Issue.js";
 import Activity from "../models/Activity.js";
+import Release from "../models/Release.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
-import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,withRepositoryLock} from "../services/git.js";
+import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listTags,createTag,deleteTag,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,uid){if(repo.owner._id.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -45,6 +46,44 @@ router.get("/:id/search",asyncHandler(async(req,res)=>{
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide search text between 1 and 100 characters and a valid result limit.",p.error.flatten());
  const result=await searchCode(repo._id,p.data.q,p.data.ref||repo.defaultBranch,p.data.limit||100);
  res.json(result);
+}));
+router.get("/:id/releases",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const [releases,tags]=await Promise.all([
+  Release.find({repository:repo._id}).sort({publishedAt:-1}).limit(100).populate("author","username displayName avatarUrl"),
+  listTags(repo._id)
+ ]);
+ res.json({releases,tags});
+}));
+router.post("/:id/releases",asyncHandler(async(req,res)=>{
+ requireDurableStorage();
+ const repo=await getRepo(req.params.id);
+ assertManage(await roleFor(repo,req.user._id));
+ const p=z.object({
+  tagName:z.string().trim().min(1).max(128),
+  name:z.string().trim().min(1).max(120),
+  notes:z.string().trim().min(1).max(5000),
+  targetBranch:z.string().trim().min(1).max(160)
+ }).strict().safeParse(req.body);
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Release details are invalid.",p.error.flatten());
+ const branches=await listBranches(repo._id);
+ if(!branches.some(item=>item.name===p.data.targetBranch))throw new AppError(400,"BRANCH_NOT_FOUND","Choose an existing target branch.");
+ if(await Release.exists({repository:repo._id,tagName:p.data.tagName}))throw new AppError(409,"RELEASE_EXISTS","A release already exists for this tag.");
+ const tag=await withRepositoryLock(repo._id,()=>createTag(repo._id,p.data.tagName,p.data.targetBranch,p.data.notes,req.user));
+ let release;
+ try{
+  release=await Release.create({
+   repository:repo._id,tagName:tag.name,name:p.data.name,notes:p.data.notes,
+   targetBranch:p.data.targetBranch,targetSha:tag.commitSha,author:req.user._id
+  });
+ }catch(error){
+  await withRepositoryLock(repo._id,()=>deleteTag(repo._id,tag.name)).catch(()=>{});
+  if(error.code===11000)throw new AppError(409,"RELEASE_EXISTS","A release already exists for this tag.");
+  throw error;
+ }
+ await event(req.user._id,repo,"release.published","release",release.name,"Published "+release.name+" ("+release.tagName+").",release._id);
+ res.status(201).json({release:await Release.findById(release._id).populate("author","username displayName avatarUrl")});
 }));
 router.get("/:id/files",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const ref=String(req.query.ref||repo.defaultBranch);res.json({files:await listFiles(repo._id,ref),ref});}));
 router.get("/:id/files/content",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json(await readFile(repo._id,String(req.query.ref||repo.defaultBranch),String(req.query.path||"")));}));

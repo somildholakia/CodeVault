@@ -6,6 +6,7 @@ import path from "node:path";
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),"codevault-tests-"));
 process.env.REPO_STORAGE_PATH=path.join(temp,"repos");
 const git=await import("../src/services/git.js");
+const dependencyScanner=await import("../src/services/dependencyScanner.js");
 let seq=1;
 async function makeRepo(){const id=(seq++).toString(16).padStart(24,"0");await git.initRepository({_id:id,name:"test-project",description:"Test repository"},{addReadme:true,authorName:"Test User",authorEmail:"test@codevault.local"});return id;}
 after(async()=>fs.rm(temp,{recursive:true,force:true}));
@@ -269,4 +270,76 @@ test("computes real contribution heatmap, author rankings and file activity from
  assert.equal(stats.daily.reduce((sum,item)=>sum+item.commits,0),3);
  assert.ok(stats.additions>=2);
  assert.ok(stats.hotFiles.some(file=>file.path==="src/analytics.js"));
+});
+
+test("reports exact npm inventory and requires a lockfile before vulnerability results",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const manifest={name:"inventory-fixture",dependencies:{"alpha-lib":"^1.2.0"},devDependencies:{"test-helper":"~3.0.0"}};
+ await git.commitFile(id,"main","package.json",JSON.stringify(manifest,null,2),"Add npm manifest",author);
+ const report=await dependencyScanner.scanDependencies(id,"main");
+ assert.equal(report.status,"lockfile_required");
+ assert.equal(report.manifestCount,1);
+ assert.equal(report.packageCount,2);
+ assert.ok(report.dependencies.some(item=>item.name==="alpha-lib"&&item.requested==="^1.2.0"));
+ assert.deepEqual(report.findings,[]);
+});
+
+test("scans exact npm lockfile versions against OSV and returns patched-version hints",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const lock={
+  name:"lock-fixture",
+  lockfileVersion:3,
+  packages:{
+   "":{name:"lock-fixture"},
+   "node_modules/foo":{"version":"1.0.0"},
+   "node_modules/@scope/bar":{"version":"2.0.0"}
+  }
+ };
+ await git.commitFile(id,"main","package-lock.json",JSON.stringify(lock),"Add npm lockfile",author);
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(url,options={})=>{
+  if(String(url).endsWith("/v1/querybatch")){
+   const body=JSON.parse(options.body);
+   return {ok:true,json:async()=>({results:body.queries.map(query=>query.package.name==="foo"?{vulns:[{id:"GHSA-test"}]}:{})})};
+  }
+  return {ok:true,json:async()=>({
+   id:"GHSA-test",
+   summary:"Test vulnerability in foo",
+   published:"2026-01-01T00:00:00Z",
+   modified:"2026-02-01T00:00:00Z",
+   database_specific:{severity:"HIGH"},
+   affected:[{package:{name:"foo"},ranges:[{events:[{introduced:"0"},{fixed:"1.2.3"}]}]}]
+  })};
+ };
+ try{
+  const report=await dependencyScanner.scanDependencies(id,"main");
+  assert.equal(report.status,"scanned");
+  assert.equal(report.packageCount,2);
+  assert.equal(report.scannedPackageCount,2);
+  assert.equal(report.vulnerabilityCount,1);
+  assert.equal(report.findings.length,1);
+  assert.equal(report.findings[0].package,"foo");
+  assert.equal(report.findings[0].severity,"high");
+  assert.deepEqual(report.findings[0].fixedVersions,["1.2.3"]);
+  assert.equal(report.summary.high,1);
+ }finally{
+  globalThis.fetch=originalFetch;
+ }
+});
+
+test("extracts deduplicated resolved npm dependencies from lockfile layouts",()=>{
+ const entries=dependencyScanner.extractNpmPackages({
+  lockfileVersion:3,
+  packages:{
+   "":{name:"demo"},
+   "node_modules/demo-a":{version:"1.0.0"},
+   "node_modules/demo-b":{version:"2.0.0"},
+   "node_modules/nested/node_modules/demo-a":{version:"1.0.0"}
+  }
+ });
+ assert.equal(entries.length,2);
+ assert.ok(entries.some(item=>item.name==="demo-a"&&item.version==="1.0.0"));
+ assert.ok(entries.some(item=>item.name==="demo-b"&&item.version==="2.0.0"));
 });

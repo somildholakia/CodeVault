@@ -145,3 +145,81 @@ export async function compareCommits(id, baseRef, targetRef) {
   const stats = output.split(String.fromCharCode(10)).filter(line => /\|\s+\d+/.test(line));
   return {base: baseCommit, target: targetCommit, diff: output, filesChanged: stats.length};
 }
+
+
+export async function revertCommit(id, branchName, commitSha, expectedHead, author = {}) {
+  const root = repositoryPath(id);
+  const branch = safeRef(branchName);
+  if (typeof commitSha !== "string" || !/^[a-f0-9]{40}$/i.test(commitSha)) {
+    throw new AppError(400, "INVALID_COMMIT", "A full 40-character commit SHA is required.");
+  }
+  if (typeof expectedHead !== "string" || !/^[a-f0-9]{40}$/i.test(expectedHead)) {
+    throw new AppError(400, "EXPECTED_HEAD_REQUIRED", "Refresh the branch and provide its current head SHA before reverting.");
+  }
+  const current = (await git(root, ["rev-parse", "--verify", branch + "^{commit}"])).stdout.trim();
+  if (current !== expectedHead) throw new AppError(409, "BRANCH_MOVED", "The branch changed since it was loaded. Refresh its history before reverting.");
+  const target = (await git(root, ["rev-parse", "--verify", commitSha + "^{commit}"])).stdout.trim();
+  try {
+    const ancestry = await git(root, ["merge-base", "--is-ancestor", target, branch]);
+    if (ancestry.stdout) throw new Error("unexpected output");
+  } catch {
+    throw new AppError(400, "COMMIT_NOT_ON_BRANCH", "The selected commit is not part of the chosen branch history.");
+  }
+  const parents = (await git(root, ["rev-list", "--parents", "-n", "1", target])).stdout.trim().split(" ").filter(Boolean);
+  if (parents.length > 2) throw new AppError(409, "MERGE_COMMIT_REVERT_UNSUPPORTED", "Reverting a merge commit requires an explicit mainline parent and is not supported by this action.");
+  if (parents.length !== 2) throw new AppError(409, "ROOT_COMMIT_REVERT_UNSUPPORTED", "The initial root commit cannot be reverted with this action.");
+  const status = (await git(root, ["status", "--porcelain"])).stdout.trim();
+  if (status) throw new AppError(409, "WORKTREE_NOT_CLEAN", "The repository has uncommitted changes. Save or discard them before reverting.");
+  await git(root, ["checkout", "--quiet", branch]);
+  const name = String(author.displayName || author.username || "CodeVault Member").slice(0, 80);
+  const email = String(author.email || "member@codevault.local").slice(0, 254);
+  try {
+    await git(root, ["-c", "user.name=" + name, "-c", "user.email=" + email, "revert", "--no-edit", target]);
+  } catch (error) {
+    await git(root, ["revert", "--abort"]).catch(() => {});
+    throw new AppError(409, "REVERT_CONFLICT", "The selected change cannot be reverted cleanly on this branch. Resolve conflicts manually in a dedicated revert workflow.", {cause: error.message});
+  }
+  const revertedBy = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+  return {branch, revertedCommit: target, revertCommit: revertedBy, parentCommit: parents[1]};
+}
+
+export async function diffBranches(id, sourceRef, targetRef) {
+  const root = repositoryPath(id);
+  const source = safeRef(sourceRef);
+  const target = safeRef(targetRef);
+  const [sourceSha, targetSha] = await Promise.all([
+    git(root, ["rev-parse", "--verify", source + "^{commit}"]),
+    git(root, ["rev-parse", "--verify", target + "^{commit}"])
+  ]);
+  const diff = await git(root, ["diff", "--no-ext-diff", "--no-color", "--no-renames", "--unified=0", target + "..." + source]);
+  return {source: sourceSha.stdout.trim(), target: targetSha.stdout.trim(), diff: diff.stdout.slice(0, 500000)};
+}
+
+export function isAddedDiffLine(diff, filePath, lineNumber) {
+  if (typeof filePath !== "string" || !filePath || filePath.length > 500 || !Number.isInteger(lineNumber) || lineNumber < 1) return false;
+  let currentPath = "";
+  let newLine = 0;
+  let insideHunk = false;
+  for (const row of String(diff || "").split(String.fromCharCode(10))) {
+    if (row.startsWith("+++ b/")) {
+      currentPath = row.slice(6);
+      insideHunk = false;
+      continue;
+    }
+    if (row.startsWith("@@ ")) {
+      const hunk = row.match(/\+([0-9]+)(?:,([0-9]+))? @@/);
+      if (!hunk) { insideHunk = false; continue; }
+      newLine = Number(hunk[1]);
+      insideHunk = true;
+      continue;
+    }
+    if (!insideHunk) continue;
+    if (row.startsWith("+") && !row.startsWith("+++")) {
+      if (currentPath === filePath && newLine === lineNumber) return true;
+      newLine++;
+    } else if (row.startsWith(" ")) {
+      newLine++;
+    }
+  }
+  return false;
+}

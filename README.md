@@ -7,7 +7,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - React 18, Vite, React Router, Tailwind CSS v4 and Lucide.
 - Node.js 20+, Express, Zod validation, bcrypt password hashing and signed HTTP-only session cookies.
 - MongoDB + Mongoose for accounts, repository metadata, collaborators, issues, pull requests, reviews and activity.
-- Git CLI invoked through Node's `execFile` argument arrays for native commits, refs, file trees, diffs and merges.
+- Git CLI invoked through Node's execFile argument arrays for native commits, refs, file trees, diffs and merges.
 - Vercel frontend and Render API. Git data requires a durable backend disk.
 
 ## Implemented workflows
@@ -37,46 +37,47 @@ A version-control and collaboration workspace for student development teams. Cod
 
 ## Project structure
 
-- `website/` — standalone product, documentation and source-download site (static HTML/CSS/JS; separately deployable).
-- `client/` — React/Vite browser app.
-- `server/src/models/` — Mongoose account, repository, issue, collaborator, activity and pull-request schemas.
-- `server/src/routes/` — authenticated REST endpoints.
-- `server/src/services/git.js` — filesystem-backed native Git operations.
-- `server/test/` — real temporary Git repository and pull-request review-policy tests.
-- `docs/` — architecture, API, diagrams and final-year project report draft.
+- \`website/\` — standalone product, documentation and source-download site (static HTML/CSS/JS; separately deployable).
+- \`client/\` — React/Vite browser app.
+- \`server/src/models/\` — Mongoose account, repository, issue, collaborator, activity and pull-request schemas.
+- \`server/src/routes/\` — authenticated REST endpoints.
+- \`server/src/services/git.js\` — filesystem-backed native Git operations.
+- \`server/test/\` — temporary Git repository, review-policy, cookie-policy and request-origin tests.
+- \`docs/\` — architecture, API, diagrams and final-year project report draft.
 
 Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
 
 ## Product website
 
-The standalone CodeVault product website lives in `website/`. The public site is live at https://codevault-site.vercel.app. It includes direct source ZIP/tar.gz links for this feature branch and a link to GitHub Releases. These archives are source code, not desktop installers. It explains the product workflows, links to the public source ZIP/tarball and documents the current setup path. It is intentionally a separate static site and can be deployed as its own Vercel project with root directory `website` and output directory `public`. No desktop installer is currently published.
+The standalone CodeVault product website lives in \`website/\`. The public site is live at https://codevault-site.vercel.app. It includes direct source ZIP/tar.gz links for this feature branch and a link to GitHub Releases. These archives are source code, not desktop installers. It explains the product workflows, links to the public source ZIP/tarball and documents the current setup path. It is intentionally a separate static site and can be deployed as its own Vercel project with root directory \`website\` and output directory \`public\`. No desktop installer is currently published.
 
 ## Local setup
 
 Requirements: Node.js 20.11+, npm, Git 2.30+ and MongoDB.
 
-1. Copy `.env.example` to `.env`.
-2. Set `MONGODB_URI` and a random `JWT_SECRET` of at least 32 characters.
-3. Run `npm install` from the repository root.
-4. Run `npm run dev`.
-5. Open `http://localhost:5173`. API health: `http://localhost:4000/api/health`.
+1. Copy \`.env.example\` to \`.env\`.
+2. Set \`MONGODB_URI\` and a random \`JWT_SECRET\` of at least 32 characters.
+3. Run \`npm install\` from the repository root.
+4. Run \`npm run dev\`.
+5. Open \`http://localhost:5173\`. API health: \`http://localhost:4000/api/health\`.
 
 Do not commit secrets. No demo users, fake commits or fabricated metrics are seeded.
 
 ## Deployment
 
-Vercel root directory: `client`. Build: `npm run build`. Output: `dist`. The Vercel rewrite proxies `/api/*` to Render, keeping browser requests same-origin.
-Render builds with `npm install --workspace=server` and starts with `npm run start --workspace=server`.
+Vercel root directory: \`client\`. Build: \`npm run build\`. Output: \`dist\`. The Vercel rewrite proxies \`/api/*\` to Render, keeping browser requests same-origin.
+Render builds with \`npm install --workspace=server\` and starts with \`npm run start --workspace=server\`.
 
-Configure `MONGODB_URI`, `JWT_SECRET` and `CLIENT_ORIGIN` in Render. Set `REPO_STORAGE_PATH` to an attached durable volume and set `REPO_STORAGE_DURABLE=true` only after verifying that volume. Repository writes deliberately remain blocked in production until durable Git storage is enabled.
+Configure \`MONGODB_URI\`, \`JWT_SECRET\` and the exact browser frontend origin in \`CLIENT_ORIGIN\` on Render. For a Vercel frontend and Render API on different sites, set \`COOKIE_SAME_SITE=none\`; production automatically marks the session cookie Secure and HttpOnly. Keep the CORS origin list exact (comma-separated for multiple trusted origins), never use a wildcard with credentialed cookies. Cookie-authenticated state-changing requests must include an allowed Origin; originless API clients should use bearer authentication.
+
+Set \`REPO_STORAGE_PATH\` to an attached durable volume and set \`REPO_STORAGE_DURABLE=true\` only after verifying that volume. Repository writes deliberately remain blocked in production until durable Git storage is enabled.
 
 ## Verification and limitations
 
-Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews and invalid path/ref rejection. Pull-request review-policy tests check independent approvals and change-request blocking. GitHub Actions runs the frontend production build and backend unit tests.
+Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews and invalid path/ref rejection. Pull-request review-policy tests check independent approvals and change-request blocking. Authentication cookie and request-origin policy tests cover production cross-site cookie attributes and cookie-authenticated mutation origins. GitHub Actions runs the frontend production build, backend syntax validation, backend tests and product website tests.
 
 The current Git service uses a shared worktree and an in-process repository lock. Multi-instance production operation needs isolated worktrees or a distributed lock. Backups, restore drills, rate/abuse limits and a security review are required before storing sensitive source code.
 
-
 ### Dependency security scanning
 
-CodeVault can scan exact resolved versions from npm lockfiles and exact pinned Python requirements (`package==version`) against OSV. Unpinned ranges, environment-marker requirements, editable installs and VCS references are not treated as exact resolved versions. A missing lockfile or unsupported manifest is reported explicitly rather than described as vulnerability-free.
+CodeVault can scan exact resolved versions from npm lockfiles and exact pinned Python requirements (\`package==version\`) against OSV. Unpinned ranges, environment-marker requirements, editable installs and VCS references are not treated as exact resolved versions. A missing lockfile or unsupported manifest is reported explicitly rather than described as vulnerability-free.

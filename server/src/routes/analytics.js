@@ -21,7 +21,7 @@ router.get("/overview",asyncHandler(async(req,res)=>{
  }));
  for(const dates of datesByRepository){
   for(const timestamp of dates){
-   const day=timestamp.slice(0,10);
+   const day=new Date(timestamp).toISOString().slice(0,10);
    countByDay.set(day,(countByDay.get(day)||0)+1);
   }
  }

@@ -135,7 +135,7 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
  if(protection?.requireResolvedConversations&&pr.reviewThreads.some(thread=>!thread.resolved))throw new AppError(409,"UNRESOLVED_CONVERSATIONS","Resolve every inline review conversation before merging.");
  const preview=await previewMerge(pr.repository._id,pr.sourceBranch,pr.targetBranch);
  if(!preview.canMerge)throw new AppError(409,"MERGE_CONFLICT","Resolve the branch conflicts before merging.",{conflicts:preview.conflicts,files:preview.files});
- await withRepositoryLock(pr.repository._id,()=>mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,preview.targetHead));
+ await withRepositoryLock(pr.repository._id,()=>mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,preview.targetHead,sourceBranch.sha));
  const latest=await listCommits(pr.repository._id,pr.targetBranch,1);
  pr.status="merged";pr.mergedBy=req.user._id;pr.mergedAt=new Date();pr.mergeCommit=latest[0]?.sha||"";
  await pr.save();await record(req.user._id,pr,"pull_request.merged","Merged pull request #"+pr.number+": "+pr.title+".");

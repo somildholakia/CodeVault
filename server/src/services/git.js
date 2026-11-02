@@ -247,7 +247,43 @@ export async function resolveMergeConflicts(id, sourceRef, targetRef, expectedHe
   }
 }
 
-export async function mergeBranches(id,source,target,expectedHead){const root=repositoryPath(id),from=safeRef(source),into=safeRef(target);if(from===into)throw new AppError(400,"SAME_BRANCH","Choose different branches.");const current=(await git(root,["rev-parse",into])).stdout.trim();if(expectedHead&&current!==expectedHead)throw new AppError(409,"BRANCH_MOVED","Target branch moved since preview; refresh before merging.");await git(root,["checkout","--quiet",into]);try{await git(root,["merge","--no-edit","--no-ff",from]);return {merged:true};}catch(e){const conflicts=(await git(root,["diff","--name-only","--diff-filter=U"]).catch(()=>({stdout:""}))).stdout.split(/\r?\n/).filter(Boolean);await git(root,["merge","--abort"]).catch(()=>{});throw new AppError(409,"MERGE_CONFLICT","Git could not merge these branches without conflicts.",{conflictingFiles:conflicts,message:e.message});}}
+export async function mergeBranches(id, source, target, expectedHead, expectedSourceSha) {
+  const root = repositoryPath(id);
+  const from = safeRef(source), into = safeRef(target);
+  if (from === into) throw new AppError(400, "SAME_BRANCH", "Choose different branches.");
+  if (expectedSourceSha !== undefined && (typeof expectedSourceSha !== "string" || !/^[a-f0-9]{40}$/i.test(expectedSourceSha))) {
+    throw new AppError(400, "EXPECTED_SOURCE_REQUIRED", "Provide the reviewed source branch SHA.");
+  }
+
+  const [targetResult, sourceResult] = await Promise.all([
+    git(root, ["rev-parse", "--verify", "refs/heads/" + into]),
+    git(root, ["rev-parse", "--verify", from + "^{commit}"])
+  ]);
+  const currentTarget = targetResult.stdout.trim();
+  const currentSource = sourceResult.stdout.trim();
+  if (expectedHead && currentTarget !== expectedHead) {
+    throw new AppError(409, "BRANCH_MOVED", "Target branch moved since preview; refresh before merging.");
+  }
+  if (expectedSourceSha && currentSource !== expectedSourceSha) {
+    throw new AppError(409, "BRANCH_MOVED", "Source branch moved after review; refresh the pull request and obtain approval for the latest commit.");
+  }
+
+  await git(root, ["checkout", "--quiet", into]);
+  try {
+    // Merge the immutable SHA we validated instead of resolving the mutable source ref again.
+    await git(root, ["merge", "--no-edit", "--no-ff", currentSource]);
+    const mergedHead = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    return {merged: true, source: from, target: into, sourceSha: currentSource, targetHead: mergedHead};
+  } catch (error) {
+    const conflicts = (await git(root, ["diff", "--name-only", "--diff-filter=U"]).catch(() => ({stdout: ""})))
+      .stdout.split(/\r?\n/).filter(Boolean);
+    await git(root, ["merge", "--abort"]).catch(() => {});
+    throw new AppError(409, "MERGE_CONFLICT", "Git could not merge these branches without conflicts.", {
+      conflictingFiles: conflicts,
+      message: error.message
+    });
+  }
+}
 export async function commitFile(id,branch,file,content,message,author){if(typeof content!=="string"||Buffer.byteLength(content,"utf8")>1048576)throw new AppError(413,"FILE_TOO_LARGE","A commit is limited to 1 MiB of text.");if(typeof message!=="string"||message.trim().length<3||message.trim().length>180)throw new AppError(400,"INVALID_COMMIT_MESSAGE","Commit message must be 3–180 characters.");const root=repositoryPath(id),b=safeRef(branch),p=safePath(file);await git(root,["checkout","--quiet",b]);const target=path.resolve(root,p);if(!target.startsWith(root+path.sep))throw new AppError(400,"INVALID_FILE_PATH","The path is outside the repository.");let current=root;for(const part of p.split("/").slice(0,-1)){current=path.join(current,part);try{if((await fs.lstat(current)).isSymbolicLink())throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Editing through symbolic links is prohibited.");}catch(e){if(e.code==="ENOENT")break;throw e;}}try{if((await fs.lstat(target)).isSymbolicLink())throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Editing symbolic links is prohibited.");}catch(e){if(e.code!=="ENOENT")throw e;}await fs.mkdir(path.dirname(target),{recursive:true,mode:0o750});await fs.writeFile(target,content,{encoding:"utf8",mode:0o640});await git(root,["add","--",p]);await git(root,["-c","user.name="+String(author.displayName||author.username).slice(0,80),"-c","user.email="+String(author.email||"member@codevault.local").slice(0,254),"commit","-m",message.trim()]);return {sha:(await git(root,["rev-parse","HEAD"])).stdout.trim(),branch:b,path:p};}
 export async function diffCommit(id,commitSha){if(!/^[a-f0-9]{7,40}$/i.test(commitSha))throw new AppError(400,"INVALID_COMMIT","Invalid commit identifier.");return (await git(repositoryPath(id),["show","--no-ext-diff","--format=","--stat","--patch","--unified=3",commitSha])).stdout.slice(0,300000);}
 

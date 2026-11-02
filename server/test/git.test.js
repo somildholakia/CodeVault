@@ -379,3 +379,44 @@ test("scans pinned Python requirements through OSV without treating ranges as ex
   assert.deepEqual(report.requirementsFiles,["requirements.txt"]);
  }finally{globalThis.fetch=originalFetch;}
 });
+
+
+test("rejects a pull-request merge when the reviewed source branch advances", async () => {
+ const id = await makeRepo();
+ const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/reviewed","main");
+ const reviewed = await git.commitFile(
+  id,"feature/reviewed","reviewed.js","export const reviewed = true;\n",
+  "Add reviewed implementation",author
+ );
+ const targetHead = (await git.listBranches(id)).find(branch => branch.name === "main").sha;
+ await git.commitFile(
+  id,"feature/reviewed","unreviewed.js","export const unreviewed = true;\n",
+  "Add unreviewed follow-up",author
+ );
+ const sourceHead = (await git.listBranches(id)).find(branch => branch.name === "feature/reviewed").sha;
+ assert.notEqual(sourceHead,reviewed.sha);
+ await assert.rejects(
+  () => git.mergeBranches(id,"feature/reviewed","main",targetHead,reviewed.sha),
+  error => error.code === "BRANCH_MOVED"
+ );
+ const unchangedTarget = (await git.listBranches(id)).find(branch => branch.name === "main").sha;
+ assert.equal(unchangedTarget,targetHead);
+ assert.ok(!(await git.listFiles(id,"main")).some(file => file.path === "reviewed.js"));
+});
+
+test("merges the exact reviewed source SHA rather than resolving a changed ref again", async () => {
+ const id = await makeRepo();
+ const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/pinned","main");
+ const reviewed = await git.commitFile(
+  id,"feature/pinned","pinned.js","export const pinned = true;\n",
+  "Add reviewed snapshot",author
+ );
+ const targetHead = (await git.listBranches(id)).find(branch => branch.name === "main").sha;
+ const result = await git.mergeBranches(id,"feature/pinned","main",targetHead,reviewed.sha);
+ assert.equal(result.sourceSha,reviewed.sha);
+ assert.equal(result.target,"main");
+ const targetFiles = await git.listFiles(id,"main");
+ assert.ok(targetFiles.some(file => file.path === "pinned.js"));
+});

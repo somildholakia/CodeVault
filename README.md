@@ -44,7 +44,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/routes/` — authenticated REST endpoints.
 - `server/src/services/git.js` — filesystem-backed native Git operations.
 - `server/src/services/sequences.js` — atomic issue and pull-request numbering.
-- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin and concurrent sequence-allocation tests.
+- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin, concurrent sequence-allocation and reviewed-source merge tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
 Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.

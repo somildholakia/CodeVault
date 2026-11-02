@@ -416,7 +416,7 @@ function IssuesIndex(){
     setExpandedIssue(current=>current===item._id?null:current);
    }else{
     setItems(current=>current.map(issue=>issue._id===item._id?{...issue,status:nextStatus}:issue));
-    setIssueDetail(current=>current?{...current,status:nextStatus}:current);
+    setIssueDetail(current=>current?._id===item._id?{...current,status:nextStatus}:current);
    }
   }catch(e){setError(e.message);}finally{setUpdatingIssue("");}
  };

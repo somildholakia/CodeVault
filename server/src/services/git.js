@@ -16,6 +16,22 @@ export async function initRepository(repo,options={}){const root=repositoryPath(
 export async function listFiles(id,branch="main"){const r=await git(repositoryPath(id),["ls-tree","-r","--name-only",safeRef(branch)]);return r.stdout.split(/\r?\n/).filter(Boolean).map(file=>({path:file,name:file.split("/").pop(),extension:path.extname(file).slice(1).toLowerCase()}));}
 export async function readFile(id,branch,file){const p=safePath(file),r=await git(repositoryPath(id),["show",safeRef(branch)+":"+p]);if(Buffer.byteLength(r.stdout,"utf8")>1048576)throw new AppError(413,"FILE_TOO_LARGE","Files larger than 1 MiB cannot be displayed.");return {path:p,ref:branch,content:r.stdout};}
 export async function listCommits(id,branch="main",limit=50){const n=Math.min(100,Math.max(1,Number(limit)||50)),format="%H%x1f%an%x1f%ae%x1f%aI%x1f%s";const r=await git(repositoryPath(id),["log","--max-count="+n,"--date=iso-strict","--format="+format,safeRef(branch)]);return r.stdout.split(/\r?\n/).filter(Boolean).map(line=>{const v=line.split(String.fromCharCode(31));return {sha:v[0],author:v[1],email:v[2],date:v[3],message:v.slice(4).join(String.fromCharCode(31))};});}
+
+export async function listCommitDatesSince(id, branch = "main", since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)) {
+  const revision = safeRef(branch);
+  const cutoff = since instanceof Date ? since : new Date(since);
+  if (Number.isNaN(cutoff.getTime())) {
+    throw new AppError(400, "INVALID_COMMIT_DATE", "Provide a valid commit history start date.");
+  }
+  const result = await git(repositoryPath(id), [
+    "log",
+    "--format=%aI",
+    "--since=" + cutoff.toISOString(),
+    revision
+  ]);
+  return result.stdout.split(/\r?\n/).filter(Boolean);
+}
+
 export async function listBranches(id){
  const root=repositoryPath(id);
  const refs=await git(root,["for-each-ref","--format=%(refname:short)","refs/heads"]);

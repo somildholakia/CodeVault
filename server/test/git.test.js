@@ -420,3 +420,24 @@ test("merges the exact reviewed source SHA rather than resolving a changed ref a
  const targetFiles = await git.listFiles(id,"main");
  assert.ok(targetFiles.some(file => file.path === "pinned.js"));
 });
+
+
+test("returns all commit dates since a cutoff without the latest-100 history cap", async () => {
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ for(let index=0;index<105;index++){
+  await git.commitFile(
+   id,"main","activity-"+index+".js",
+   "export const activity"+index+" = true;\n",
+   "Add activity "+index,author
+  );
+ }
+ const cutoff=new Date(Date.now()-10*60*1000);
+ const dates=await git.listCommitDatesSince(id,"main",cutoff);
+ assert.equal(dates.length,106);
+ assert.ok(dates.every(value=>!Number.isNaN(Date.parse(value))));
+ await assert.rejects(
+  ()=>git.listCommitDatesSince(id,"main","not-a-date"),
+  error=>error.code==="INVALID_COMMIT_DATE"
+ );
+});

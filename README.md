@@ -31,6 +31,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Three-way merge conflict editor with base/target/source panes, manual resolution, stale-head checks and isolated merge commits.
 - Branch protection rules with wildcard patterns, pull-request requirements, approval thresholds, stale-approval dismissal, resolved-thread gates and protected deletion.
 - Repository contribution heatmaps, author rankings and changed-file activity computed from actual Git history.
+- Workspace overview commit activity is aggregated using one bounded parallel Git date scan per tracked repository, without truncating each repository to its latest 100 commits.
 - npm dependency inventory and lockfile-based OSV vulnerability scans, with explicit lockfile-required status when exact versions are unavailable.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
@@ -46,7 +47,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/services/git.js` — filesystem-backed native Git operations.
 - `server/src/services/sequences.js` — atomic issue and pull-request numbering.
 - `server/src/services/repositoryCleanup.js` — repository-scoped dependent-record cleanup.
-- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge and repository-cleanup tests.
+- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, repository-cleanup and full-history activity tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
 Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.

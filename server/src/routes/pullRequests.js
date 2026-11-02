@@ -10,6 +10,7 @@ import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
 import {listBranches,previewMerge,mergeBranches,listCommits,withRepositoryLock,diffBranches,isAddedDiffLine} from "../services/git.js";
 import {evaluateReviewGate,selectBranchProtection} from "../services/pullRequestPolicy.js";
+import {nextSequence} from "../services/sequences.js";
 const router=Router();router.use(requireAuth);
 async function findRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id);if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,userId){if(repo.owner.toString()===userId.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:userId,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -41,9 +42,17 @@ router.post("/",asyncHandler(async(req,res)=>{
  const duplicate=await PullRequest.findOne({repository:repo._id,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,status:"open"});
  if(duplicate)throw new AppError(409,"PULL_REQUEST_EXISTS","An open pull request already exists for these branches.");
  const last=await PullRequest.findOne({repository:repo._id}).sort({number:-1}).select("number");
+ const number=await nextSequence("pull_request:"+repo._id,(last?.number||0));
  let pr;
- try{pr=await PullRequest.create({repository:repo._id,number:(last?.number||0)+1,title:p.data.title,description:p.data.description,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,author:req.user._id});}
- catch(e){if(e.code===11000)throw new AppError(409,"PULL_REQUEST_NUMBER_CONFLICT","A pull request was created at the same time. Refresh and try again.");throw e;}
+ try{pr=await PullRequest.create({repository:repo._id,number,title:p.data.title,description:p.data.description,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,author:req.user._id});}
+ catch(e){
+  if(e.code===11000){
+   const duplicateNow=await PullRequest.exists({repository:repo._id,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,status:"open"});
+   if(duplicateNow)throw new AppError(409,"PULL_REQUEST_EXISTS","An open pull request already exists for these branches.");
+   throw new AppError(409,"PULL_REQUEST_NUMBER_CONFLICT","A pull request number conflicted. Refresh and try again.");
+  }
+  throw e;
+ }
  await record(req.user._id,pr,"pull_request.created","Opened pull request #"+pr.number+": "+pr.title+".");
  res.status(201).json({pullRequest:await PullRequest.findById(pr._id).populate("repository","name visibility defaultBranch").populate("author","username displayName avatarUrl")});
 }));

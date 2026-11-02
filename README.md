@@ -19,6 +19,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Branch creation, merge preview, conflict detection and guarded native Git merge.
 - Repository-wide literal code search across committed text on any branch, with bounded results and permission checks.
 - Repository-scoped issues with status, priority, comments and collaborator assignment.
+- Atomic repository-scoped numbering for issues and pull requests, plus a database uniqueness rule preventing duplicate open pull requests for the same branch pair.
 - Workspace-wide issue inbox with safe text search, status/priority filters, personal scopes and pagination.
 - Release publishing with annotated Git tags, version notes and tag history.
 - Interactive commit DAG across branches, with parent/child navigation, read-only historical snapshots and commit-to-commit diffs.
@@ -42,7 +43,8 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/models/` — Mongoose account, repository, issue, collaborator, activity and pull-request schemas.
 - `server/src/routes/` — authenticated REST endpoints.
 - `server/src/services/git.js` — filesystem-backed native Git operations.
-- `server/test/` — temporary Git repository, review-policy, cookie-policy and request-origin tests.
+- `server/src/services/sequences.js` — atomic issue and pull-request numbering.
+- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin and concurrent sequence-allocation tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
 Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.

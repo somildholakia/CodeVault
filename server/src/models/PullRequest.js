@@ -36,4 +36,5 @@ const schema=new mongoose.Schema({
 },{timestamps:true,versionKey:false});
 schema.index({repository:1,number:1},{unique:true});
 schema.index({repository:1,status:1,updatedAt:-1});
+schema.index({repository:1,sourceBranch:1,targetBranch:1},{unique:true,partialFilterExpression:{status:"open"}});
 export default mongoose.model("PullRequest",schema);

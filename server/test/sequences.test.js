@@ -82,6 +82,7 @@ test("only one open pull request can exist for a repository and branch pair", ()
     keys.repository === 1 && keys.sourceBranch === 1 && keys.targetBranch === 1
   );
   assert.equal(index?.[1]?.unique, true);
+  assert.equal(index?.[1]?.name, "uniq_active_pull_request_branch_pair");
   assert.deepEqual(index?.[1]?.partialFilterExpression, {status: {$in: ["open", "merging"]}});
 });
 

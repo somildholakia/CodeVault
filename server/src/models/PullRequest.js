@@ -37,5 +37,5 @@ const schema=new mongoose.Schema({
 },{timestamps:true,versionKey:false});
 schema.index({repository:1,number:1},{unique:true});
 schema.index({repository:1,status:1,updatedAt:-1});
-schema.index({repository:1,sourceBranch:1,targetBranch:1},{unique:true,partialFilterExpression:{status:{$in:["open","merging"]}}});
+schema.index({repository:1,sourceBranch:1,targetBranch:1},{unique:true,name:"uniq_active_pull_request_branch_pair",partialFilterExpression:{status:{$in:["open","merging"]}}});
 export default mongoose.model("PullRequest",schema);

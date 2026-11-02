@@ -18,3 +18,5 @@ jobs:
         run: npm run build
       - name: Test Git engine
         run: npm test
+      - name: Test product website
+        run: node --test website/test/site.test.js

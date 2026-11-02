@@ -37,6 +37,7 @@ A version-control and collaboration workspace for student development teams. Cod
 
 ## Project structure
 
+- `website/` — standalone product, documentation and source-download site (static HTML/CSS/JS; separately deployable).
 - `client/` — React/Vite browser app.
 - `server/src/models/` — Mongoose account, repository, issue, collaborator, activity and pull-request schemas.
 - `server/src/routes/` — authenticated REST endpoints.
@@ -45,6 +46,10 @@ A version-control and collaboration workspace for student development teams. Cod
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
 Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
+
+## Product website
+
+The standalone CodeVault product website lives in `website/`. It explains the product workflows, links to the public source ZIP/tarball and documents the current setup path. It is intentionally a separate static site and can be deployed as its own Vercel project with root directory `website` and output directory `public`. No desktop installer is currently published.
 
 ## Local setup
 

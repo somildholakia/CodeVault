@@ -14,6 +14,7 @@ A version-control and collaboration workspace for student development teams. Cod
 
 - Registration, login, logout and profile updates.
 - Repository creation with a real initial Git commit, README, .gitignore and MIT license option.
+- Owner-confirmed repository deletion serialized against Git writes, with dependent issues, pull requests, branch rules, collaborators, activity and number counters purged.
 - Public/private repository metadata and server-side owner/collaborator permission checks.
 - File browsing, in-browser text editing, commit creation, history and commit diffs.
 - Branch creation, merge preview, conflict detection and guarded native Git merge.
@@ -44,7 +45,8 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/routes/` — authenticated REST endpoints.
 - `server/src/services/git.js` — filesystem-backed native Git operations.
 - `server/src/services/sequences.js` — atomic issue and pull-request numbering.
-- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin, concurrent sequence-allocation and reviewed-source merge tests.
+- `server/src/services/repositoryCleanup.js` — repository-scoped dependent-record cleanup.
+- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge and repository-cleanup tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
 Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.

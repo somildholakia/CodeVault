@@ -15,6 +15,7 @@ import {AppError,asyncHandler,notFound} from "../utils/errors.js";
 import {selectBranchProtection} from "../services/pullRequestPolicy.js";
 import {scanDependencies} from "../services/dependencyScanner.js";
 import {nextSequence} from "../services/sequences.js";
+import {purgeRepositoryRecords} from "../services/repositoryCleanup.js";
 import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,getContributionStats,withRepositoryLock} from "../services/git.js";
 const router=Router();router.use(requireAuth);
 const dependencyScanLimiter=rateLimit({windowMs:60000,limit:4,standardHeaders:"draft-7",legacyHeaders:false});
@@ -247,5 +248,18 @@ router.post("/:id/issues",asyncHandler(async(req,res)=>{
 }));
 router.post("/:id/collaborators",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({username:z.string().trim().min(3).max(30).regex(/^[A-Za-z0-9_-]+$/),role:z.enum(["maintainer","developer","viewer"]).default("developer")}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a valid username and role.");const person=await User.findOne({username:p.data.username.toLowerCase()}).select("_id username displayName avatarUrl");if(!person)throw new AppError(404,"USER_NOT_FOUND","No CodeVault account has that username.");if(person._id.toString()===repo.owner._id.toString())throw new AppError(400,"OWNER_IS_NOT_COLLABORATOR","The owner already has full access.");try{const collaborator=await Collaborator.create({repository:repo._id,user:person._id,role:p.data.role,invitedBy:req.user._id,acceptedAt:new Date()});await event(req.user._id,repo,"collaborator.added","collaborator",person.username,"Added @"+person.username+" as "+p.data.role+".",person._id);res.status(201).json({collaborator:{...collaborator.toObject(),user:person}});}catch(e){if(e.code===11000)throw new AppError(409,"COLLABORATOR_EXISTS","That user already has access.");throw e;}}));
 router.get("/:id/collaborators",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const collaborators=await Collaborator.find({repository:repo._id,acceptedAt:{$ne:null}}).populate("user","username displayName avatarUrl").populate("invitedBy","username displayName");res.json({collaborators,owner:repo.owner});}));
-router.delete("/:id",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);if(await roleFor(repo,req.user._id)!=="owner")throw new AppError(403,"PERMISSION_DENIED","Only the owner can delete a repository.");const p=z.object({confirmation:z.string()}).safeParse(req.body);if(!p.success||p.data.confirmation!==repo.name)throw new AppError(400,"CONFIRMATION_REQUIRED","Send the exact repository name to confirm deletion.");await fs.rm(repositoryPath(repo._id),{recursive:true,force:true});await Promise.all([Collaborator.deleteMany({repository:repo._id}),Issue.deleteMany({repository:repo._id}),Release.deleteMany({repository:repo._id})]);await Repository.deleteOne({_id:repo._id});await event(req.user._id,null,"repository.deleted","repository",repo.name,"Deleted repository "+repo.name+".",repo._id);res.status(204).end();}));
+router.delete("/:id",asyncHandler(async(req,res)=>{
+ requireDurableStorage();
+ const repo=await getRepo(req.params.id);
+ if(await roleFor(repo,req.user._id)!=="owner")throw new AppError(403,"PERMISSION_DENIED","Only the owner can delete a repository.");
+ const p=z.object({confirmation:z.string()}).strict().safeParse(req.body);
+ if(!p.success||p.data.confirmation!==repo.name)throw new AppError(400,"CONFIRMATION_REQUIRED","Send the exact repository name to confirm deletion.");
+ await withRepositoryLock(repo._id,async()=>{
+  await fs.rm(repositoryPath(repo._id),{recursive:true,force:true});
+  await purgeRepositoryRecords(repo._id);
+  await Repository.deleteOne({_id:repo._id});
+ });
+ await event(req.user._id,null,"repository.deleted","repository",repo.name,"Deleted repository "+repo.name+".",repo._id);
+ res.status(204).end();
+}));
 export default router;

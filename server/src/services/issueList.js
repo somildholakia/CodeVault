@@ -1,4 +1,9 @@
 const priorities = new Set(["low", "medium", "high", "critical"]);
+const writableRoles = new Set(["owner", "maintainer", "developer"]);
+
+export function canWriteIssueRole(role) {
+  return writableRoles.has(role);
+}
 const scopes = new Set(["all", "assigned", "created", "unassigned"]);
 
 export function buildIssueListFilter({repositoryIds, status = "open", priority, search, scope = "all", userId}) {

@@ -62,7 +62,7 @@ Dependency scanning reads committed `package-lock.json` or `npm-shrinkwrap.json`
 | PATCH | `/issues/:issueId` | Owner/maintainer/developer |
 | POST | `/issues/:issueId/comments` | Repository reader |
 
-Issue status is `open` or `closed`; priority is low, medium, high or critical.
+Issue status is `open` or `closed`; priority is low, medium, high or critical. The global list and issue-detail responses also include `canWrite` for the current user; viewer-only collaborators and public readers receive `false`. Clients should use this hint to hide mutation controls, while the API remains authoritative. Issue comments are available to repository readers.
 
 ## Pull requests and reviews
 

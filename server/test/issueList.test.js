@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {buildIssueListFilter, normalizeIssueListScope} from "../src/services/issueList.js";
+import {buildIssueListFilter, canWriteIssueRole, normalizeIssueListScope} from "../src/services/issueList.js";
 
 test("limits global issue results to the supplied accessible repositories", () => {
   const ids = ["repo-a", "repo-b"];
@@ -37,4 +37,13 @@ test("escapes search operators and searches title, description and labels", () =
 test("normalizes unsupported scopes to all", () => {
   assert.equal(normalizeIssueListScope("assigned"), "assigned");
   assert.equal(normalizeIssueListScope("owner"), "all");
+});
+
+test("write controls are available only to owners and writable collaborators", () => {
+  assert.equal(canWriteIssueRole("owner"), true);
+  assert.equal(canWriteIssueRole("maintainer"), true);
+  assert.equal(canWriteIssueRole("developer"), true);
+  assert.equal(canWriteIssueRole("viewer"), false);
+  assert.equal(canWriteIssueRole("public-viewer"), false);
+  assert.equal(canWriteIssueRole(undefined), false);
 });

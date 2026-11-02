@@ -360,7 +360,7 @@ const createBranch=async e=>{e.preventDefault();setError("");try{const name=bran
     </Panel>
    </div>
   </div>}
-  {tab==="issues"&&<Panel title="Issue tracker" detail="Create, discuss and close repository work items."><div className="tabs issue-tabs">{["open","closed","all"].map(v=><button key={v} className={issueStatus===v?"selected":""} onClick={()=>setIssueStatus(v)}>{v}</button>)}</div>{canWrite&&<form className="issue-form form" onSubmit={createIssue}><label>Issue title<input value={issueTitle} onChange={e=>setIssueTitle(e.target.value)} placeholder="What needs to happen?" maxLength="180" required/></label><label>Description<textarea value={issueDescription} onChange={e=>setIssueDescription(e.target.value)} rows="3" maxLength="12000" placeholder="Context, expected behaviour and acceptance criteria."/></label><label>Priority<select value={issuePriority} onChange={e=>setIssuePriority(e.target.value)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label><button className="btn dark small"><Plus size={14}/>Create issue</button></form>}{issues.length?issues.map(item=><article className="issue-card" key={item._id}><div className="issue-line"><CircleDot size={15}/><span>#{item.number}</span><b>{item.title}</b><span className="badge">{item.priority}</span><span className="badge">{item.status}</span><button className="btn outline small" onClick={()=>toggleIssue(item)}>{item.status==="open"?"Close":"Reopen"}</button><button className="icon-btn" title="Show discussion" onClick={()=>expandIssue(item)}><MessageSquare size={15}/></button></div>{expandedIssue===item._id&&<div className="issue-detail"><p>{issueDetail?.description||item.description||"No description."}</p>{(issueDetail?.comments||[]).map((c,i)=><div className="comment-row" key={c._id||i}><b>{c.author?.username||"Member"}</b><span>{c.body}</span><small>{date(c.createdAt)}</small></div>)}<form className="comment-form" onSubmit={sendComment}><input value={comment} onChange={e=>setComment(e.target.value)} maxLength="5000" placeholder="Add a comment…" required/><button className="btn dark small"><MessageSquare size={13}/>Comment</button></form></div>}</article>):<Empty title="No issues in this view" body="Create an issue to make the work visible."/>}</Panel>}
+  {tab==="issues"&&<Panel title="Issue tracker" detail="Create, discuss and close repository work items."><div className="tabs issue-tabs">{["open","closed","all"].map(v=><button key={v} className={issueStatus===v?"selected":""} onClick={()=>setIssueStatus(v)}>{v}</button>)}</div>{canWrite&&<form className="issue-form form" onSubmit={createIssue}><label>Issue title<input value={issueTitle} onChange={e=>setIssueTitle(e.target.value)} placeholder="What needs to happen?" maxLength="180" required/></label><label>Description<textarea value={issueDescription} onChange={e=>setIssueDescription(e.target.value)} rows="3" maxLength="12000" placeholder="Context, expected behaviour and acceptance criteria."/></label><label>Priority<select value={issuePriority} onChange={e=>setIssuePriority(e.target.value)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label><button className="btn dark small"><Plus size={14}/>Create issue</button></form>}{issues.length?issues.map(item=><article className="issue-card" key={item._id}><div className="issue-line"><CircleDot size={15}/><span>#{item.number}</span><b>{item.title}</b><span className="badge">{item.priority}</span><span className="badge">{item.status}</span>{canWrite&&<button className="btn outline small" onClick={()=>toggleIssue(item)}>{item.status==="open"?"Close":"Reopen"}</button>}<button className="icon-btn" title="Show discussion" onClick={()=>expandIssue(item)}><MessageSquare size={15}/></button></div>{expandedIssue===item._id&&<div className="issue-detail"><p>{issueDetail?.description||item.description||"No description."}</p>{(issueDetail?.comments||[]).map((c,i)=><div className="comment-row" key={c._id||i}><b>{c.author?.username||"Member"}</b><span>{c.body}</span><small>{date(c.createdAt)}</small></div>)}<form className="comment-form" onSubmit={sendComment}><input value={comment} onChange={e=>setComment(e.target.value)} maxLength="5000" placeholder="Add a comment…" required/><button className="btn dark small"><MessageSquare size={13}/>Comment</button></form></div>}</article>):<Empty title="No issues in this view" body="Create an issue to make the work visible."/>}</Panel>}
   {tab==="collaborators"&&<div className="repo-layout">
    <Panel title="People with access" detail="Accepted repository collaborators."><div className="collab-row owner"><span className="avatar">{(repo.owner?.username||"OW").slice(0,2).toUpperCase()}</span><div><b>{repo.owner?.displayName||repo.owner?.username}</b><small>@{repo.owner?.username} · Owner</small></div></div>{collaborators.map(c=><div className="collab-row" key={c._id}><span className="avatar">{(c.user?.username||"CV").slice(0,2).toUpperCase()}</span><div><b>{c.user?.displayName||c.user?.username}</b><small>@{c.user?.username} · {c.role}</small></div></div>)}</Panel>
    <Panel title="Add a collaborator" detail="The person must already have a CodeVault account."><form className="form" onSubmit={addCollaborator}><label>Username<input value={memberUsername} onChange={e=>setMemberUsername(e.target.value)} minLength="3" maxLength="30" pattern="[A-Za-z0-9_-]+" placeholder="teammate-handle" required/></label><label>Role<select value={memberRole} onChange={e=>setMemberRole(e.target.value)}><option value="developer">Developer</option><option value="viewer">Viewer</option><option value="maintainer">Maintainer</option></select></label><button className="btn dark full" disabled={!canManage}><UserPlus size={14}/>Add collaborator</button></form></Panel>
@@ -390,9 +390,45 @@ function IssuesIndex(){
  const [items,setItems]=useState([]),[total,setTotal]=useState(0),[pages,setPages]=useState(1),[page,setPage]=useState(1);
  const [status,setStatus]=useState("open"),[priority,setPriority]=useState(""),[scope,setScope]=useState("all");
  const [draftSearch,setDraftSearch]=useState(""),[search,setSearch]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ const [expandedIssue,setExpandedIssue]=useState(null),[issueDetail,setIssueDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
+ const [comment,setComment]=useState(""),[commentBusy,setCommentBusy]=useState(false),[updatingIssue,setUpdatingIssue]=useState("");
  useEffect(()=>{let active=true;setBusy(true);setError("");api.get("/issues",{params:{status,priority:priority||undefined,scope,search:search||undefined,page,limit:20}}).then(r=>{if(!active)return;setItems(r.data.issues||[]);setTotal(r.data.total||0);setPages(Math.max(1,r.data.pages||1));}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setBusy(false);});return()=>{active=false;};},[status,priority,scope,search,page]);
+ useEffect(()=>{
+  if(!expandedIssue){setIssueDetail(null);setDetailError("");return;}
+  let active=true;setIssueDetail(null);setDetailError("");setDetailLoading(true);setComment("");
+  api.get("/issues/"+expandedIssue).then(r=>{if(active)setIssueDetail(r.data.issue);}).catch(e=>{if(active)setDetailError(e.message);}).finally(()=>{if(active)setDetailLoading(false);});
+  return()=>{active=false;};
+ },[expandedIssue]);
  const applySearch=e=>{e.preventDefault();setPage(1);setSearch(draftSearch.trim());};
  const reset=()=>{setDraftSearch("");setSearch("");setStatus("open");setPriority("");setScope("all");setPage(1);};
+ const toggleDiscussion=item=>setExpandedIssue(current=>current===item._id?null:item._id);
+ const toggleIssueStatus=async item=>{
+  if(!item.canWrite||updatingIssue)return;
+  const nextStatus=item.status==="open"?"closed":"open";
+  setUpdatingIssue(item._id);setError("");
+  try{
+   await api.patch("/issues/"+item._id,{status:nextStatus});
+   if(status!=="all"&&nextStatus!==status){
+    setItems(current=>current.filter(issue=>issue._id!==item._id));
+    const nextTotal=Math.max(0,total-1),nextPages=Math.max(1,Math.ceil(nextTotal/20));
+    setTotal(nextTotal);setPages(nextPages);
+    if(page>nextPages)setPage(nextPages);
+    setExpandedIssue(current=>current===item._id?null:current);
+   }else{
+    setItems(current=>current.map(issue=>issue._id===item._id?{...issue,status:nextStatus}:issue));
+    setIssueDetail(current=>current?{...current,status:nextStatus}:current);
+   }
+  }catch(e){setError(e.message);}finally{setUpdatingIssue("");}
+ };
+ const sendComment=async e=>{
+  e.preventDefault();if(!expandedIssue||!comment.trim()||commentBusy)return;
+  setCommentBusy(true);setDetailError("");
+  try{
+   const r=await api.post("/issues/"+expandedIssue+"/comments",{body:comment.trim()});
+   setIssueDetail(current=>current?{...current,comments:r.data.comments||[]}:current);
+   setComment("");
+  }catch(e){setDetailError(e.message);}finally{setCommentBusy(false);}
+ };
  return <div className="page">
   <Header kicker="THE WORK THAT NEEDS ATTENTION" title="Issue inbox" description="A single view of work items across repositories you own or collaborate on."/>
   <Panel title="Find the next thing to fix" detail="Search issue titles, descriptions and labels. Results stay within repositories you can access.">
@@ -410,10 +446,21 @@ function IssuesIndex(){
    {error&&<div className="error">{error}</div>}
    <div className="issue-inbox-summary"><b>{total} {total===1?"issue":"issues"}</b><span>{busy?"Refreshing…":total?("Page "+page+" of "+pages):"No matching work items"}</span></div>
    {items.length?items.map(item=><article className="issue-card global-issue-card" key={item._id}>
-    <div className="issue-line"><CircleDot size={15}/><span>#{item.number}</span><b>{item.title}</b><span className="badge">{item.priority}</span><span className={"badge "+(item.status==="closed"?"green":"")}>{item.status}</span></div>
+    <div className="issue-line"><CircleDot size={15}/><span>#{item.number}</span><b>{item.title}</b><span className="badge">{item.priority}</span><span className={"badge "+(item.status==="closed"?"green":"")}>{item.status}</span>
+     {item.canWrite&&<button className="btn outline small" type="button" onClick={()=>toggleIssueStatus(item)} disabled={updatingIssue===item._id}>{updatingIssue===item._id?"Saving…":item.status==="open"?"Close":"Reopen"}</button>}
+     <button className="btn outline small" type="button" onClick={()=>toggleDiscussion(item)} aria-expanded={expandedIssue===item._id}><MessageSquare size={13}/>{expandedIssue===item._id?"Hide discussion":"Discussion"}</button>
+    </div>
     <p>{item.description||"No description was added to this issue."}</p>
     <div className="issue-inbox-meta"><span><FolderGit2 size={13}/>{item.repository?.name||"Repository"}</span><span>Opened by @{item.author?.username||"member"}</span><span>{item.assignee?.username?"Assigned to @"+item.assignee.username:"Unassigned"}</span><span>Updated {date(item.updatedAt)}</span></div>
-    <Link className="text-link" to={"/repositories/"+item.repository?._id}>Open repository and discussion →</Link>
+    {expandedIssue===item._id&&<div className="issue-detail">
+     {detailError&&<div className="error">{detailError}</div>}
+     {detailLoading?<div className="note">Loading discussion…</div>:issueDetail?<>
+      <p>{issueDetail.description||"No description was added to this issue."}</p>
+      {(issueDetail.comments||[]).length?issueDetail.comments.map((entry,index)=><div className="comment-row" key={entry._id||index}><b>{entry.author?.username||"Member"}</b><span>{entry.body}</span><small>{date(entry.createdAt)}</small></div>):<div className="note">No comments yet. Start the discussion below.</div>}
+      <form className="comment-form" onSubmit={sendComment}><input value={comment} onChange={e=>setComment(e.target.value)} maxLength="5000" placeholder="Add a comment…" required/><button className="btn dark small" disabled={commentBusy||!comment.trim()}>{commentBusy?<Spin/>:<MessageSquare size={13}/>}Comment</button></form>
+     </>:<div className="note">The discussion could not be loaded.</div>}
+    </div>}
+    <Link className="text-link" to={"/repositories/"+item.repository?._id}>Open repository →</Link>
    </article>):(!busy?<Empty title="Nothing in this view" body="Try another status or scope, or create an issue from one of your repositories."/>:<div className="note">Loading issues…</div>)}
    <div className="issue-inbox-pagination"><button className="btn outline small" type="button" disabled={page<=1||busy} onClick={()=>setPage(v=>Math.max(1,v-1))}>Previous</button><span>{page} / {pages}</span><button className="btn outline small" type="button" disabled={page>=pages||busy} onClick={()=>setPage(v=>Math.min(pages,v+1))}>Next</button></div>
   </Panel>

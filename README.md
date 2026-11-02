@@ -49,7 +49,7 @@ Source archives and external notifications remain future work. Exact-version npm
 
 ## Product website
 
-The standalone CodeVault product website lives in `website/`. It explains the product workflows, links to the public source ZIP/tarball and documents the current setup path. It is intentionally a separate static site and can be deployed as its own Vercel project with root directory `website` and output directory `public`. No desktop installer is currently published.
+The standalone CodeVault product website lives in `website/`. The public site is live at https://codevault-site.vercel.app. It includes direct source ZIP/tar.gz links for this feature branch and a link to GitHub Releases. These archives are source code, not desktop installers. It explains the product workflows, links to the public source ZIP/tarball and documents the current setup path. It is intentionally a separate static site and can be deployed as its own Vercel project with root directory `website` and output directory `public`. No desktop installer is currently published.
 
 ## Local setup
 

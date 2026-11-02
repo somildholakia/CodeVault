@@ -1,5 +1,7 @@
 # CodeVault product website
 
+Public website: https://codevault-site.vercel.app
+
 A standalone, framework-free product and download website for CodeVault.
 
 ## Preview locally

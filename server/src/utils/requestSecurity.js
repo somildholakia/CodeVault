@@ -1,5 +1,9 @@
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 
+export function hasBearerAuthorization(value = "") {
+  return /^Bearer\s+\S+/i.test(String(value || ""));
+}
+
 export function validateUnsafeRequestOrigin({
   method,
   origin,

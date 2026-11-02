@@ -23,7 +23,7 @@ export function cookieOptions() {
 }
 
 export const requireAuth = asyncHandler(async (req, _res, next) => {
-  const token = req.cookies?.[sessionCookieName()] || (req.get("authorization") || "").replace(/^Bearer\\s+/i, "");
+  const token = req.cookies?.[sessionCookieName()] || (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
   if (!token) throw new AppError(401, "AUTH_REQUIRED", "Sign in to continue.");
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
     throw new AppError(503, "AUTH_NOT_CONFIGURED", "Authentication is not configured.");

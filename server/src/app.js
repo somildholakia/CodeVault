@@ -11,7 +11,7 @@ import analyticsRoutes from "./routes/analytics.js";
 import activityRoutes from "./routes/activity.js";
 import pullRequestRoutes from "./routes/pullRequests.js";
 import {sessionCookieName} from "./middleware/auth.js";
-import {validateUnsafeRequestOrigin} from "./utils/requestSecurity.js";
+import {hasBearerAuthorization,validateUnsafeRequestOrigin} from "./utils/requestSecurity.js";
 
 const app = express();
 const configuredOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
@@ -39,7 +39,7 @@ app.use((req, res, next) => {
     origin: req.get("origin"),
     allowedOrigins: configuredOrigins,
     hasSessionCookie: Boolean(req.cookies?.[sessionCookieName()]),
-    hasBearerToken: /^Bearer\\s+\\S+/i.test(req.get("authorization") || "")
+    hasBearerToken: hasBearerAuthorization(req.get("authorization"))
   });
 
   if (!violation) return next();

@@ -1,8 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {validateUnsafeRequestOrigin} from "../src/utils/requestSecurity.js";
+import {hasBearerAuthorization,validateUnsafeRequestOrigin} from "../src/utils/requestSecurity.js";
 
 const allowedOrigins = ["https://codevault.example", "https://preview.codevault.example"];
+
+test("recognizes a non-empty bearer token case-insensitively", () => {
+  assert.equal(hasBearerAuthorization("Bearer abc123"), true);
+  assert.equal(hasBearerAuthorization("bearer abc123"), true);
+});
+
+test("does not treat empty or non-bearer authorization as bearer authentication", () => {
+  assert.equal(hasBearerAuthorization("Bearer "), false);
+  assert.equal(hasBearerAuthorization("Basic abc123"), false);
+  assert.equal(hasBearerAuthorization(""), false);
+});
 
 test("does not require an origin for safe read-only methods", () => {
   assert.equal(validateUnsafeRequestOrigin({

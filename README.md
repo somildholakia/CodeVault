@@ -35,6 +35,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - npm dependency inventory and lockfile-based OSV vulnerability scans, with explicit lockfile-required status when exact versions are unavailable.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
+- Atomic pull-request merge claiming: review submissions, inline comments, thread resolution and closure use conditional writes and cannot race a merge already in progress.
 - Activity history, Git-derived analytics and a short Git Learning Mode.
 - Responsive, warm-paper workspace UI and Vercel same-origin API proxy.
 
@@ -47,7 +48,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/services/git.js` — filesystem-backed native Git operations.
 - `server/src/services/sequences.js` — atomic issue and pull-request numbering.
 - `server/src/services/repositoryCleanup.js` — repository-scoped dependent-record cleanup.
-- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, repository-cleanup and full-history activity tests.
+- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, pull-request lifecycle, repository-cleanup and full-history activity tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
 Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.

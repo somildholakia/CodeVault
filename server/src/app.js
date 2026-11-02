@@ -53,6 +53,34 @@ app.use("/api/auth", rateLimit({
   legacyHeaders: false
 }));
 
+// Keep credential-guessing and disposable-account creation below the broader
+// authenticated-session endpoint budget. Each route has its own IP bucket.
+function authAttemptLimiter(limit, message) {
+  return rateLimit({
+    windowMs: 900000,
+    limit,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    handler(_req, res) {
+      res.status(429).json({
+        error: {
+          code: "AUTH_RATE_LIMITED",
+          message
+        }
+      });
+    }
+  });
+}
+
+app.use("/api/auth/login", authAttemptLimiter(
+  10,
+  "Too many sign-in attempts. Wait 15 minutes before trying again."
+));
+app.use("/api/auth/register", authAttemptLimiter(
+  5,
+  "Too many account creation attempts. Wait 15 minutes before trying again."
+));
+
 app.get("/api/health", (_req, res) => res.status(200).json({
   status: "ok",
   service: "codevault-api",

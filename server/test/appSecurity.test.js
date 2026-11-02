@@ -64,3 +64,34 @@ test("originless bearer-authenticated API request passes origin validation", asy
   assert.equal(response.status, 503);
   assert.equal(response.body.error.code, "DATABASE_UNAVAILABLE");
 });
+
+
+test("login attempts have a dedicated low ceiling and a stable JSON error", async () => {
+  const responses = [];
+  for (let attempt = 0; attempt < 11; attempt++) {
+    responses.push(await request(app)
+      .post("/api/auth/login")
+      .send({email:"rate-limit-login@example.com",password:"correct-horse-battery"}));
+  }
+  assert.ok(responses.slice(0,10).every(response => response.status === 503));
+  assert.equal(responses[10].status,429);
+  assert.equal(responses[10].body.error.code,"AUTH_RATE_LIMITED");
+  assert.match(responses[10].body.error.message,/15 minutes/);
+});
+
+test("registration has a separate, stricter attempt ceiling", async () => {
+  const responses = [];
+  for (let attempt = 0; attempt < 6; attempt++) {
+    responses.push(await request(app)
+      .post("/api/auth/register")
+      .send({
+        username:"rate_limit_user_"+attempt,
+        displayName:"Rate Limit User",
+        email:"rate-limit-register-"+attempt+"@example.com",
+        password:"correct-horse-battery"
+      }));
+  }
+  assert.ok(responses.slice(0,5).every(response => response.status === 503));
+  assert.equal(responses[5].status,429);
+  assert.equal(responses[5].body.error.code,"AUTH_RATE_LIMITED");
+});

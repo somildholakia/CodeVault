@@ -40,7 +40,7 @@ router.post("/",asyncHandler(async(req,res)=>{
  if(p.data.sourceBranch===p.data.targetBranch)throw new AppError(400,"SAME_BRANCH","Source and target branches must be different.");
  const branches=await listBranches(repo._id),names=new Set(branches.map(x=>x.name));
  if(!names.has(p.data.sourceBranch)||!names.has(p.data.targetBranch))throw new AppError(400,"BRANCH_NOT_FOUND","Choose existing source and target branches.");
- const duplicate=await PullRequest.findOne({repository:repo._id,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,status:"open"});
+ const duplicate=await PullRequest.findOne({repository:repo._id,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,status:{$in:["open","merging"]}});
  if(duplicate)throw new AppError(409,"PULL_REQUEST_EXISTS","An open pull request already exists for these branches.");
  const last=await PullRequest.findOne({repository:repo._id}).sort({number:-1}).select("number");
  const number=await nextSequence("pull_request:"+repo._id,(last?.number||0));
@@ -48,7 +48,7 @@ router.post("/",asyncHandler(async(req,res)=>{
  try{pr=await PullRequest.create({repository:repo._id,number,title:p.data.title,description:p.data.description,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,author:req.user._id});}
  catch(e){
   if(e.code===11000){
-   const duplicateNow=await PullRequest.exists({repository:repo._id,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,status:"open"});
+   const duplicateNow=await PullRequest.exists({repository:repo._id,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,status:{$in:["open","merging"]}});
    if(duplicateNow)throw new AppError(409,"PULL_REQUEST_EXISTS","An open pull request already exists for these branches.");
    throw new AppError(409,"PULL_REQUEST_NUMBER_CONFLICT","A pull request number conflicted. Refresh and try again.");
   }
@@ -147,6 +147,7 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
  await claimPullRequestMerge(initial._id);
 
  let mergeResult;
+ let gitMergeCompleted=false;
  try {
   mergeResult=await withRepositoryLock(initial.repository._id,async()=>{
    const pr=await loadPullRequest(initial._id);
@@ -175,6 +176,7 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
    const preview=await previewMerge(pr.repository._id,pr.sourceBranch,pr.targetBranch);
    if(!preview.canMerge)throw new AppError(409,"MERGE_CONFLICT","Resolve the branch conflicts before merging.",{conflicts:preview.conflicts,files:preview.files});
    await mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,preview.targetHead,sourceBranch.sha);
+   gitMergeCompleted=true;
    const latest=await listCommits(pr.repository._id,pr.targetBranch,1);
    const mergeCommit=latest[0]?.sha||"";
    await completePullRequestMerge(pr._id,{
@@ -189,9 +191,10 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
   await record(req.user._id,completed,"pull_request.merged","Merged pull request #"+mergeResult.number+": "+mergeResult.title+".");
   res.json({pullRequest:completed,mergeCommit:mergeResult.mergeCommit});
  } catch(error) {
-  // If Git and the DB transition completed, this filter is a no-op. If validation
-  // or Git failed, reopen the PR so the team can address the failure and retry.
-  await releasePullRequestMerge(initial._id).catch(()=>{});
+  // Never reopen after Git has moved the target branch. A later request must
+  // reconcile a merge whose database finalization failed, rather than create a
+  // second PR or risk applying the merge twice.
+  if(!gitMergeCompleted)await releasePullRequestMerge(initial._id).catch(()=>{});
   throw error;
  }
 }));

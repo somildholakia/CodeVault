@@ -35,7 +35,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - npm dependency inventory and lockfile-based OSV vulnerability scans, with explicit lockfile-required status when exact versions are unavailable.
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
-- Atomic pull-request merge claiming: review submissions, inline comments, thread resolution and closure use conditional writes and cannot race a merge already in progress.
+- Atomic pull-request merge claiming: review submissions, inline comments, thread resolution and closure use conditional writes and cannot race a merge already in progress. The branch-pair uniqueness constraint covers both open and merging states, and a Git-completed merge is never reopened if database finalization fails.
 - Activity history, Git-derived analytics and a short Git Learning Mode.
 - Responsive, warm-paper workspace UI and Vercel same-origin API proxy.
 

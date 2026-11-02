@@ -82,7 +82,7 @@ test("only one open pull request can exist for a repository and branch pair", ()
     keys.repository === 1 && keys.sourceBranch === 1 && keys.targetBranch === 1
   );
   assert.equal(index?.[1]?.unique, true);
-  assert.deepEqual(index?.[1]?.partialFilterExpression, {status: "open"});
+  assert.deepEqual(index?.[1]?.partialFilterExpression, {status: {$in: ["open", "merging"]}});
 });
 
 test("pull-request numbers remain unique within each repository", () => {

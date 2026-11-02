@@ -107,6 +107,7 @@ router.patch("/:id/comments/:commentId",asyncHandler(async(req,res)=>{
  const pr=await loadPullRequest(req.params.id);
  const role=await roleFor(pr.repository,req.user._id);
  assertRead(role,pr.repository);
+ assertPullRequestOpen(pr,"updated");
  const p=z.object({resolved:z.boolean()}).strict().safeParse(req.body);
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a resolved boolean value.");
  const thread=pr.reviewThreads.id(req.params.commentId);

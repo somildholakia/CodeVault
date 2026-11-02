@@ -337,3 +337,5 @@ button.pr-diff-line.added:hover>em,button.pr-diff-line.added.selected>em{opacity
 .dependency-package-list>div>span small{display:block;margin-top:3px;color:var(--muted);font-size:7.5px}
 .dependency-package-list code{flex:0 0 auto;color:#707268;font:8px ui-monospace,monospace}
 @media(max-width:620px){.dependency-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.dependency-finding{padding:9px}}
+
+.badge.merging{background:#fff0d8;color:#8b5b15}

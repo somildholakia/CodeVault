@@ -12,6 +12,7 @@ test("product site has accessible document metadata and a descriptive hero", () 
   assert.match(html, /<title>CodeVault — Git, in good company\.<\/title>/);
   assert.match(html, /<h1>Good code\.<br><em>Clear history\.<\/em><br>Better together/);
   assert.match(html, /class="skip-link"/);
+  assert.match(html, /ILLUSTRATIVE PREVIEW · SAMPLE CONTENT/);
 });
 
 test("site explains the real product workflows without inventing product claims", () => {

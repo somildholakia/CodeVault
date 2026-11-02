@@ -28,7 +28,7 @@ router.get("/",asyncHandler(async(req,res)=>{
  const ids=[...membership.map(x=>x.repository),...own.map(x=>x._id),...visible.map(x=>x._id)];
  const filter={repository:{$in:ids}};
  if(req.query.repository){const repo=await findRepo(String(req.query.repository));assertRead(await roleFor(repo,req.user._id),repo);filter.repository=repo._id;}
- if(["open","merged","closed"].includes(req.query.status))filter.status=req.query.status;
+ if(["open","merging","merged","closed"].includes(req.query.status))filter.status=req.query.status;
  const limit=Math.min(100,Math.max(1,Number(req.query.limit)||50));
  const pullRequests=await PullRequest.find(filter).sort({updatedAt:-1}).limit(limit).populate("repository","name visibility defaultBranch").populate("author","username displayName avatarUrl").populate("mergedBy","username displayName avatarUrl");
  res.json({pullRequests});
@@ -41,7 +41,7 @@ router.post("/",asyncHandler(async(req,res)=>{
  const branches=await listBranches(repo._id),names=new Set(branches.map(x=>x.name));
  if(!names.has(p.data.sourceBranch)||!names.has(p.data.targetBranch))throw new AppError(400,"BRANCH_NOT_FOUND","Choose existing source and target branches.");
  const duplicate=await PullRequest.findOne({repository:repo._id,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,status:{$in:["open","merging"]}});
- if(duplicate)throw new AppError(409,"PULL_REQUEST_EXISTS","An open pull request already exists for these branches.");
+ if(duplicate)throw new AppError(409,"PULL_REQUEST_EXISTS","An active pull request already exists for these branches.");
  const last=await PullRequest.findOne({repository:repo._id}).sort({number:-1}).select("number");
  const number=await nextSequence("pull_request:"+repo._id,(last?.number||0));
  let pr;
@@ -49,7 +49,7 @@ router.post("/",asyncHandler(async(req,res)=>{
  catch(e){
   if(e.code===11000){
    const duplicateNow=await PullRequest.exists({repository:repo._id,sourceBranch:p.data.sourceBranch,targetBranch:p.data.targetBranch,status:{$in:["open","merging"]}});
-   if(duplicateNow)throw new AppError(409,"PULL_REQUEST_EXISTS","An open pull request already exists for these branches.");
+   if(duplicateNow)throw new AppError(409,"PULL_REQUEST_EXISTS","An active pull request already exists for these branches.");
    throw new AppError(409,"PULL_REQUEST_NUMBER_CONFLICT","A pull request number conflicted. Refresh and try again.");
   }
   throw e;

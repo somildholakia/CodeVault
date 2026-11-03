@@ -46,6 +46,22 @@ Final handoff verification after recording the implementation results:
 - PR CI #177: https://github.com/somildholakia/CodeVault/actions/runs/41568909309 — passed.
 - Both workflows ran against branch head `a3f291e1f5420e730dd901dde7d15989dbc9fccb`; backend tests 98 passed, website tests 7 passed, frontend build and backend syntax validation passed.
 
+## Latest completed change
+
+Implementation checkpoint — MongoDB-backed cross-worker repository leases and fencing.
+
+- Replaced the process-local-only repository mutex with an atomic MongoDB lease per repository id.
+- Each lease acquisition increments a persistent fence counter. Release expires the lease but retains the counter, so stale workers cannot reuse an earlier fence.
+- A heartbeat renews the active lease. Lost ownership fails closed with `REPOSITORY_LOCK_LOST`; Git commands verify the current owner/fence before and after execution.
+- Repository creation, commits, branch/tag operations, PR merge/reconciliation and repository deletion continue through the shared lock helper. Initial repository filesystem creation and deletion now explicitly assert ownership.
+- Added tests using independent lock-manager instances over a shared atomic lock-store model, covering mutual exclusion, increasing fencing tokens, stale-owner rejection, heartbeats and unavailable coordination.
+- Added `REPO_LOCK_LEASE_MS`, `REPO_LOCK_HEARTBEAT_MS` and `REPO_LOCK_WAIT_MS` configuration examples and documented the shared-disk requirement.
+
+## Latest verified CI
+
+This implementation checkpoint has been pushed to `feat/global-issue-tracker`. GitHub Actions results for this checkpoint must be checked before calling the lock change verified.
+
+
 ## Implemented feature areas
 
 - React/Vite client, Express API, MongoDB metadata and filesystem-backed native Git.
@@ -64,8 +80,7 @@ For the full feature inventory and local/deployment setup, see `README.md`.
 
 ## Next recommended engineering task
 
-Replace the process-local repository lock with a durable, cross-process coordination strategy before enabling multi-instance API deployment. The design should use leases/fencing or isolated Git worktrees, prove stale-lock recovery and prevent concurrent writes across processes. Keep durable storage, backup/restore drills and independent security review as explicit production gates.
-
+Verify that production Git storage can provide one shared durable volume to every API worker. If not, design isolated Git worktrees or a dedicated Git storage service; then run worker-kill recovery tests and complete backup/restore drills. Do not enable multi-instance Git writes on separate local disks.
 ## Working rules for the next chat
 
 1. Start by reading this file and the current `README.md`.

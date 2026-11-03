@@ -6,7 +6,7 @@ A version-control and collaboration workspace for student development teams. Cod
 
 - React 18, Vite, React Router, Tailwind CSS v4 and Lucide.
 - Node.js 20+, Express, Zod validation, bcrypt password hashing and signed HTTP-only session cookies.
-- MongoDB + Mongoose for accounts, repository metadata, collaborators, issues, pull requests, reviews and activity.
+- MongoDB + Mongoose for accounts, repository metadata, collaborators, issues, pull requests, reviews, activity and cross-worker repository leases with monotonic fencing tokens.
 - Git CLI invoked through Node's execFile argument arrays for native commits, refs, file trees, diffs and merges.
 - Vercel frontend and Render API. Git data requires a durable backend disk.
 
@@ -37,6 +37,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
 - Atomic pull-request merge claiming: review submissions, inline comments, thread resolution and closure use conditional writes and cannot race a merge already in progress. The branch-pair uniqueness constraint covers both open and merging states, and a Git-completed merge is never reopened if database finalization fails.
 - Crash-safe pull-request merge recovery: claims pin the reviewed source SHA, target SHA and initiating user; a maintainer can reconcile an old claim after a five-minute grace period. Recovery reads Git refs/ancestry under the repository lock, finalizes only a proven merge, reopens only when the target is unchanged, and preserves ambiguous states without replaying a merge.
+- Cross-worker repository coordination: MongoDB lease documents, monotonic fencing tokens, automatic heartbeats and lease ownership checks before/after native Git commands.
 - Activity history, Git-derived analytics and a short Git Learning Mode.
 - Responsive, warm-paper workspace UI and Vercel same-origin API proxy.
 
@@ -44,12 +45,13 @@ A version-control and collaboration workspace for student development teams. Cod
 
 - `website/` — standalone product, documentation and source-download site (static HTML/CSS/JS; separately deployable).
 - `client/` — React/Vite browser app.
-- `server/src/models/` — Mongoose account, repository, issue, collaborator, activity and pull-request schemas.
+- `server/src/models/` — Mongoose account, repository, issue, collaborator, activity, pull-request and repository-lock schemas.
 - `server/src/routes/` — authenticated REST endpoints.
 - `server/src/services/git.js` — filesystem-backed native Git operations.
 - `server/src/services/sequences.js` — atomic issue and pull-request numbering.
 - `server/src/services/repositoryCleanup.js` — repository-scoped dependent-record cleanup.
-- `server/test/` — temporary Git repository, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, pull-request lifecycle, repository-cleanup and full-history activity tests.
+- `server/src/services/repositoryLock.js` — MongoDB lease, heartbeat, fencing and ownership validation.
+- `server/test/` — temporary Git repository, cross-worker lease contention/recovery/fencing, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, pull-request lifecycle, repository-cleanup and full-history activity tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
 Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
@@ -77,13 +79,13 @@ Render builds with `npm install --workspace=server` and starts with `npm run sta
 
 Configure `MONGODB_URI`, `JWT_SECRET` and the exact browser frontend origin in `CLIENT_ORIGIN` on Render. For a Vercel frontend and Render API on different sites, set `COOKIE_SAME_SITE=none`; production automatically marks the session cookie Secure and HttpOnly. Keep the CORS origin list exact (comma-separated for multiple trusted origins), never use a wildcard with credentialed cookies. Cookie-authenticated state-changing requests must include an allowed Origin; originless API clients should use bearer authentication.
 
-Set `REPO_STORAGE_PATH` to an attached durable volume and set `REPO_STORAGE_DURABLE=true` only after verifying that volume. Repository writes deliberately remain blocked in production until durable Git storage is enabled.
+Set `REPO_STORAGE_PATH` to an attached durable volume and set `REPO_STORAGE_DURABLE=true` only after verifying that volume. Repository writes deliberately remain blocked in production until durable Git storage is enabled. Repository locks use MongoDB leases by default (`REPO_LOCK_LEASE_MS=120000`, `REPO_LOCK_HEARTBEAT_MS=25000`, `REPO_LOCK_WAIT_MS=15000`); keep the lease longer than the maximum single Git command and the heartbeat well below the lease.
 
 ## Verification and limitations
 
 Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews and invalid path/ref rejection. Pull-request review-policy tests check independent approvals and change-request blocking. Authentication cookie and request-origin policy tests cover production cross-site cookie attributes and cookie-authenticated mutation origins. GitHub Actions runs the frontend production build, backend syntax validation, backend tests and product website tests.
 
-The current Git service uses a shared worktree and an in-process repository lock. Multi-instance production operation needs isolated worktrees or a distributed lock. Backups, restore drills, rate/abuse limits and a security review are required before storing sensitive source code.
+The Git service uses one shared worktree per repository and MongoDB-backed leases with monotonically increasing fencing tokens. A lease is reclaimed only after expiry; heartbeats renew it, and each native Git command checks the current owner/fence before and after execution. This coordinates API workers only when they use the same MongoDB database and the same shared repository volume. Separate per-instance disks are not coordinated by MongoDB and must not be used for multi-instance Git writes. Before scale-out, verify shared-volume semantics and crash recovery, then complete backup/restore drills, quota enforcement and an independent security review.
 
 ### Dependency security scanning
 

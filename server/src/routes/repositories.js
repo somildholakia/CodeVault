@@ -17,6 +17,7 @@ import {scanDependencies} from "../services/dependencyScanner.js";
 import {nextSequence} from "../services/sequences.js";
 import {purgeRepositoryRecords} from "../services/repositoryCleanup.js";
 import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,getContributionStats,withRepositoryLock} from "../services/git.js";
+import {assertRepositoryLease} from "../services/repositoryLock.js";
 const router=Router();router.use(requireAuth);
 const dependencyScanLimiter=rateLimit({windowMs:60000,limit:4,standardHeaders:"draft-7",legacyHeaders:false});
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
@@ -37,7 +38,7 @@ router.post("/",asyncHandler(async(req,res)=>{
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Repository details are invalid.",p.error.flatten());
  const slug=p.data.name.toLowerCase();if(await Repository.exists({owner:req.user._id,slug}))throw new AppError(409,"REPOSITORY_EXISTS","You already have a repository with that name.");
  const repo=new Repository({name:p.data.name,slug,description:p.data.description,visibility:p.data.visibility,owner:req.user._id,defaultBranch:"main"});let root;
- try{root=await initRepository(repo,{branch:"main",addReadme:p.data.addReadme,gitignore:p.data.gitignore,license:p.data.license,authorName:req.user.displayName,authorEmail:req.user.email||"member@codevault.local"});repo.gitInitialized=true;await repo.save();}
+ try{root=await withRepositoryLock(repo._id,()=>initRepository(repo,{branch:"main",addReadme:p.data.addReadme,gitignore:p.data.gitignore,license:p.data.license,authorName:req.user.displayName,authorEmail:req.user.email||"member@codevault.local"}));repo.gitInitialized=true;await repo.save();}
  catch(e){if(root)await fs.rm(root,{recursive:true,force:true}).catch(()=>{});if(e.code===11000)throw new AppError(409,"REPOSITORY_EXISTS","You already have a repository with that name.");throw e;}
  await event(req.user._id,repo,"repository.created","repository",repo.name,"Created repository "+repo.name+".",repo._id);
  res.status(201).json({repository:await Repository.findById(repo._id).populate("owner","username displayName avatarUrl"),cloneUrl:null});
@@ -255,6 +256,7 @@ router.delete("/:id",asyncHandler(async(req,res)=>{
  const p=z.object({confirmation:z.string()}).strict().safeParse(req.body);
  if(!p.success||p.data.confirmation!==repo.name)throw new AppError(400,"CONFIRMATION_REQUIRED","Send the exact repository name to confirm deletion.");
  await withRepositoryLock(repo._id,async()=>{
+  await assertRepositoryLease(repo._id);
   await fs.rm(repositoryPath(repo._id),{recursive:true,force:true});
   await purgeRepositoryRecords(repo._id);
   await Repository.deleteOne({_id:repo._id});

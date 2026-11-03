@@ -25,7 +25,7 @@ flowchart LR
 
 **API.** Express exposes JSON endpoints under `/api`. Middleware applies Helmet headers, CORS origin validation, JSON size limits, cookie parsing, authentication rate limiting and a database connectivity gate. Protected routes require a signed JWT session cookie.
 
-**Metadata database.** Mongoose schemas define User, Repository, Collaborator, Issue, Activity and PullRequest. Unique indexes protect usernames/emails, owner+repository slug, (repository,issue number), (repository,pull-request number), and collaborator membership.
+**Metadata database.** Mongoose schemas define User, Repository, Collaborator, Issue, Activity, PullRequest and RepositoryLock. Unique indexes protect usernames/emails, owner+repository slug, (repository,issue number), (repository,pull-request number), and collaborator membership.
 
 **Git storage.** Every repository is a real Git repository located under `REPO_STORAGE_PATH/<repository ObjectId>`. Git commands are invoked with Node's `execFile` and an argument array, never shell interpolation. Git remains the source of truth for file trees, commits, refs, diffs and merges.
 
@@ -57,7 +57,7 @@ Private repository identifiers are not authorization. Access is checked server-s
 - Refs are validated before being passed to Git.
 - File paths must be repository-relative and cannot traverse parent directories or access the internal `.git` directory.
 - Text reads and single-file commits have explicit size limits.
-- Repository mutations use a per-repository in-process lock.
+- Repository mutations use an atomic MongoDB lease keyed by repository id. Each acquisition increments a persistent fencing counter; owners renew their lease with heartbeats and verify the owner token/fence before and after native Git commands. Release expires the lease but preserves the counter.
 - Merge preview detects conflicts before a merge.
 - Pull-request merge checks the target branch head observed by the preview and blocks outstanding change requests or missing independent approvals.
 - In production, repository writes are blocked until `REPO_STORAGE_DURABLE=true` is explicitly set by the operator after attaching durable storage.
@@ -68,4 +68,4 @@ Vercel serves the client. A Vercel rewrite proxies `/api/*` to the Render backen
 
 ## Known limitations and next steps
 
-The shared Git worktree and process-local lock are suitable for a single service instance, not multi-instance writes. A production scale-out should use isolated Git worktrees or a distributed lock, plus repository-level quota enforcement, backup/restore drills and an audit of Git command resource limits. Releases/tags, source archives, notifications, full-text code search and an interactive conflict editor are not in the implemented scope.
+The MongoDB lease coordinates workers only when they point at the same MongoDB database and the same shared repository volume. Separate per-instance disks are not coordinated. Git commands are checked against the current lease/fence before and after execution, but an already-running OS command cannot be forcibly fenced mid-invocation; keep the lease longer than the 20-second Git command timeout and the heartbeat comfortably shorter. Before multi-instance deployment, verify that the chosen shared volume supports atomic Git file/ref locking, exercise worker-kill recovery and run backup/restore drills. Isolated Git worktrees remain an option if the deployment platform cannot provide a common durable disk. Quota enforcement and independent security review are still required.

@@ -152,7 +152,7 @@ export function createLocalGitStorageAdapter(options={}){
  }
 
  async function readRefUnlocked(root,ref){
-  const result=await runGit(root,["show-ref","--verify","--hash",safeRef(ref)],{allowMissing:true});
+  const result=await runGit(root,["rev-parse","--verify","--quiet",safeRef(ref)],{allowMissing:true});
   const value=result.stdout.trim();
   return value||null;
  }

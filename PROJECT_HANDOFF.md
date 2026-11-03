@@ -10,83 +10,84 @@ Last verified: 2026-11-03 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Latest implementation and verification checkpoint before this handoff update: `a3f291e1f5420e730dd901dde7d15989dbc9fccb`
+- Latest code checkpoint: `6eef5e95bf68afc24f7ae8e73da2ddc671c49612`
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change
 
-Checkpoint `b0a0c07` — conservative pull-request merge crash recovery, fully CI-verified.
+Checkpoint `6eef5e9` — MongoDB-backed repository leases, storage-topology documentation and production Git-write gating.
 
-- Merge claims persist the reviewed source SHA, target SHA, claim timestamp and initiating user.
-- Claims are created while holding the repository Git lock, before mutable review/comment writes are blocked.
-- Git recovery inspects both branch refs and pinned commit ancestry. It never executes a merge.
-- If the target contains the pinned source commit, recovery finalizes the PR as merged and records the identified first-parent merge commit (or the pinned target for an already-ancestor no-op).
-- If the target is still exactly at the pinned target SHA and both refs/commits are available, recovery safely returns the PR to open.
-- Diverged targets, missing refs, missing commit objects and other inconclusive states remain in merging; the endpoint reports a recoverable ambiguity instead of guessing.
-- Owners/maintainers can call `POST /api/pull-requests/:id/reconcile-merge` after a five-minute grace period.
-- Once native Git merge has been attempted, ordinary error handling no longer releases the claim blindly.
-- Added lifecycle tests and temporary-Git integration tests for completed-before-crash, not-completed, already-ancestor/no-op, target divergence and unavailable source refs.
-- Updated `README.md` and `docs/api.md` with behavior and endpoint documentation.
+- Replaced the process-local-only repository mutex with an atomic MongoDB lease per repository id.
+- Each lease acquisition increments a persistent fencing counter. Release expires the lease but retains the counter, so a future owner receives a higher fence.
+- Lease heartbeats renew ownership; lost/unavailable coordination fails closed with `REPOSITORY_LOCK_LOST`, `REPOSITORY_LOCK_UNAVAILABLE` or `REPOSITORY_LOCK_BUSY`.
+- Native Git commands verify the current lock owner/fence before and after execution. Repository initialization and rollback, file writes and repository deletion also assert ownership around filesystem mutations.
+- Added independent-worker tests for serialization, monotonic fencing, expired-lease recovery, stale-owner rejection, heartbeats, fail-closed database errors and nested same-repository operations.
+- Centralized the production durable-storage gate in `server/src/utils/repositoryStorage.js`.
+- PR merge now checks the same gate as the repository Git-write routes; production PR merges are blocked until durable Git storage is explicitly enabled.
+- API health uses the same storage-readiness check.
+- Added tests confirming production Git writes are denied unless `REPO_STORAGE_DURABLE=true` is explicit.
+- Added `REPO_LOCK_LEASE_MS`, `REPO_LOCK_HEARTBEAT_MS` and `REPO_LOCK_WAIT_MS` configuration examples.
+- Updated `README.md` and `docs/architecture.md` with MongoDB lease behavior and the Render storage limitations.
 
 ## Latest verified CI
 
-Both workflows passed against branch head `b0a0c07e3a17883a5d27c29dbae839105084d5cd`:
+Both workflows passed against code head `6eef5e95bf68afc24f7ae8e73da2ddc671c49612`:
 
-- Push CI #174: https://github.com/somildholakia/CodeVault/actions/runs/41568745275
-- PR CI #175: https://github.com/somildholakia/CodeVault/actions/runs/41568749684
-- Backend tests: 98 passed, 0 failed.
+- Push CI #195: https://github.com/somildholakia/CodeVault/actions/runs/41571012293
+- PR CI #196: https://github.com/somildholakia/CodeVault/actions/runs/41571016418
+- Backend tests: 106 passed, 0 failed.
 - Product website tests: 7 passed, 0 failed.
 - Frontend production build: passed.
 - Backend JavaScript syntax validation: passed.
 
-Both CI jobs completed successfully. The push workflow and PR synchronization workflow ran independently.
+Both workflow jobs completed successfully.
 
-Final handoff verification after recording the implementation results:
-- Push CI #176: https://github.com/somildholakia/CodeVault/actions/runs/41568904979 — passed.
-- PR CI #177: https://github.com/somildholakia/CodeVault/actions/runs/41568909309 — passed.
-- Both workflows ran against branch head `a3f291e1f5420e730dd901dde7d15989dbc9fccb`; backend tests 98 passed, website tests 7 passed, frontend build and backend syntax validation passed.
+## Actual Render topology checked
 
-## Latest completed change
+The connected Render account was inspected on 2026-11-03:
 
-Implementation checkpoint — MongoDB-backed cross-worker repository leases and fencing.
+- Service: `codevault-api`
+- Plan: Free
+- Instances: 1
+- Configured branch: `main`
+- Region: Singapore
+- URL: https://codevault-api-9k1a.onrender.com
 
-- Replaced the process-local-only repository mutex with an atomic MongoDB lease per repository id.
-- Each lease acquisition increments a persistent fence counter. Release expires the lease but retains the counter, so stale workers cannot reuse an earlier fence.
-- A heartbeat renews the active lease. Lost ownership fails closed with `REPOSITORY_LOCK_LOST`; Git commands verify the current owner/fence before and after execution.
-- Repository creation, commits, branch/tag operations, PR merge/reconciliation and repository deletion continue through the shared lock helper. Initial repository filesystem creation and deletion now explicitly assert ownership.
-- Added tests using independent lock-manager instances over a shared atomic lock-store model, covering mutual exclusion, increasing fencing tokens, stale-owner rejection, heartbeats and unavailable coordination.
-- Added `REPO_LOCK_LEASE_MS`, `REPO_LOCK_HEARTBEAT_MS` and `REPO_LOCK_WAIT_MS` configuration examples and documented the shared-disk requirement.
+The checked-in `render.yaml` also declares the Free plan and `REPO_STORAGE_DURABLE=false`. Render Free does not provide persistent disks; its filesystem is ephemeral. Render's persistent disks require a paid service and pin that service to one instance. Consequently:
 
-## Latest verified CI
-
-This implementation checkpoint has been pushed to `feat/global-issue-tracker`. GitHub Actions results for this checkpoint must be checked before calling the lock change verified.
-
+- Keep production Git writes disabled on the current Render Free service.
+- The MongoDB lease coordinates workers only when they access the same repository volume; it does not replicate Git data between separate disks.
+- Do not claim that the current Render deployment is durable or horizontally scalable.
+- Enabling multi-instance Git writes requires an externally shared durable filesystem with compatible Git locking semantics, or a dedicated Git storage service.
 
 ## Implemented feature areas
 
 - React/Vite client, Express API, MongoDB metadata and filesystem-backed native Git.
 - Authentication, session cookies, exact-origin enforcement and bearer-token API support.
-- Repository creation, access roles, collaborators, safe deletion and dependent-record cleanup.
+- Repository creation, roles, collaborators, safe deletion and dependent-record cleanup.
 - Repository browser/editor, commits, branches, tags, history, diffs, blame and historical snapshots.
 - Visual commit DAG, safe revert, branch protection and three-way conflict resolution.
-- Workspace-wide issue inbox, issue discussions, atomic issue numbering.
-- Pull requests, inline review threads, independent approval gates, stale-approval handling, atomic merge claiming and immutable reviewed-source SHA validation.
-- Atomic PR numbering and unique active branch-pair constraint.
-- Releases, persisted activity, contribution heatmaps, contributor analytics and changed-file analytics.
+- Workspace-wide issue inbox, discussions and atomic issue numbering.
+- Pull requests, inline review threads, independent approval gates and immutable reviewed-source SHA validation.
+- Pull-request merge crash recovery with conservative stale-claim reconciliation.
+- MongoDB cross-worker repository leases, heartbeats and fencing tokens.
+- Production Git-write gate shared by repository and pull-request merge routes.
+- Releases, persisted activity, contribution heatmaps and repository analytics.
 - npm lockfile and exact-pinned Python dependency scanning against OSV.
-- Separate static product/marketing website and source archive links.
+- Separate static product website and source archive links.
 
-For the full feature inventory and local/deployment setup, see `README.md`.
+For full feature inventory, setup and deployment details, see `README.md`.
 
 ## Next recommended engineering task
 
-Verify that production Git storage can provide one shared durable volume to every API worker. If not, design isolated Git worktrees or a dedicated Git storage service; then run worker-kill recovery tests and complete backup/restore drills. Do not enable multi-instance Git writes on separate local disks.
+Design a durable Git storage topology that works independently of Render's single-instance disk limitation. Evaluate a dedicated Git storage service or an object-backed/remote bare-repository design with safe ref updates, then add worker-kill, restore and integrity tests. Do not enable multi-instance Git writes on separate local disks and do not enable paid infrastructure without Somil's approval.
+
 ## Working rules for the next chat
 
 1. Start by reading this file and the current `README.md`.
 2. Re-fetch the current branch ref, PR #1 metadata and latest Actions runs before editing.
-3. Inspect the actual current route, model, lifecycle service, Git service, lock helper and tests; do not rely solely on this summary.
-4. Make focused changes, add regression tests, run the full test/build/syntax checks, and wait for GitHub Actions.
-5. Push commits to `feat/global-issue-tracker`, update PR #1 description with the new work and verification, and update this handoff document at each checkpoint.
-6. Report the exact new commit SHA, CI run URLs/results, and PR status.
-7. Never claim deployment or production readiness merely because CI passes. The app still requires durable Git storage, multi-instance locking strategy, backup/restore drills and independent security review before production use.
+3. Inspect the actual current route, model, lease service, Git service and tests; do not rely solely on this summary.
+4. Make focused changes, add regression tests, run the full test/build/syntax checks and wait for GitHub Actions.
+5. Push commits to `feat/global-issue-tracker`, update PR #1 with new work and verification, and update this handoff at every checkpoint.
+6. Report the exact new commit SHA, CI results and PR status.
+7. Never merge PR #1 or change `main` without explicit permission. Never claim production readiness only because CI passes.

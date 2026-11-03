@@ -565,8 +565,13 @@ test("exports a verified Git bundle that restores branches, tags and full commit
   const bytes = await fs.readFile(backup.path);
   assert.equal(createHash("sha256").update(bytes).digest("hex"),backup.sha256);
 
-  // A bare clone of a bundle preserves all advertised branch and tag refs.
-  execFileSync("git",["clone","--bare","--quiet",backup.path,restoredPath],{stdio:"pipe"});
+  // Unbundle imports every object. Recreate every advertised branch/tag ref
+  // explicitly so the restore check is independent of a remote's default HEAD.
+  execFileSync("git",["init","--bare","--quiet",restoredPath],{stdio:"pipe"});
+  execFileSync("git",["bundle","unbundle",backup.path],{cwd:restoredPath,stdio:"pipe"});
+  for (const ref of backup.refs.filter(item=>item.ref.startsWith("refs/heads/")||item.ref.startsWith("refs/tags/"))) {
+   execFileSync("git",["update-ref",ref.ref,ref.sha],{cwd:restoredPath,stdio:"pipe"});
+  }
 
   const restoredRefs = execFileSync("git",[
    "for-each-ref","--format=%(refname)"

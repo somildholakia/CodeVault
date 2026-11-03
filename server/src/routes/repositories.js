@@ -39,7 +39,7 @@ router.post("/",asyncHandler(async(req,res)=>{
  const slug=p.data.name.toLowerCase();if(await Repository.exists({owner:req.user._id,slug}))throw new AppError(409,"REPOSITORY_EXISTS","You already have a repository with that name.");
  const repo=new Repository({name:p.data.name,slug,description:p.data.description,visibility:p.data.visibility,owner:req.user._id,defaultBranch:"main"});let root;
  try{root=await withRepositoryLock(repo._id,()=>initRepository(repo,{branch:"main",addReadme:p.data.addReadme,gitignore:p.data.gitignore,license:p.data.license,authorName:req.user.displayName,authorEmail:req.user.email||"member@codevault.local"}));repo.gitInitialized=true;await repo.save();}
- catch(e){if(root)await fs.rm(root,{recursive:true,force:true}).catch(()=>{});if(e.code===11000)throw new AppError(409,"REPOSITORY_EXISTS","You already have a repository with that name.");throw e;}
+ catch(e){if(root)await withRepositoryLock(repo._id,async()=>{await assertRepositoryLease(repo._id);await fs.rm(root,{recursive:true,force:true});}).catch(()=>{});if(e.code===11000)throw new AppError(409,"REPOSITORY_EXISTS","You already have a repository with that name.");throw e;}
  await event(req.user._id,repo,"repository.created","repository",repo.name,"Created repository "+repo.name+".",repo._id);
  res.status(201).json({repository:await Repository.findById(repo._id).populate("owner","username displayName avatarUrl"),cloneUrl:null});
 }));

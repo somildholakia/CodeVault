@@ -353,12 +353,17 @@ export function createLocalGitStorageAdapter(options={}){
    const bundleSha256=await sha256File(bundlePath);
    return scoped(id,async lease=>{
     const root=repositoryPath(id);
-    const preflight=await runGit(root,["bundle","verify",bundlePath]);
+    await runGit(root,["bundle","verify",bundlePath]);
     const listing=await runGit(root,["bundle","list-heads",bundlePath]);
     const refs=parseBundleRefs(listing.stdout);
     const expectedRefs=input.expectedRefs||{};
     const allowed=new Set(refs.map(item=>item.ref));
     if(Object.keys(expectedRefs).some(ref=>!allowed.has(ref)))throw new AppError(400,"INVALID_EXPECTED_REFS","Expected refs must match refs advertised by the bundle.");
+    const defaultBranch=input.defaultBranch?String(input.defaultBranch):null;
+    if(defaultBranch){
+     await runGit(root,["check-ref-format","--branch",defaultBranch]);
+     if(!refs.some(item=>item.ref==="refs/heads/"+defaultBranch))throw new AppError(400,"DEFAULT_BRANCH_NOT_IMPORTED","The requested default branch is not included in the bundle.");
+    }
     const changes=refs.map(item=>({
      ref:item.ref,
      expectedObjectId:safeSha(Object.prototype.hasOwnProperty.call(expectedRefs,item.ref)?expectedRefs[item.ref]:null,true),
@@ -371,14 +376,10 @@ export function createLocalGitStorageAdapter(options={}){
      bundleSha256,
      operationPayload:{bundleSha256,defaultBranch:input.defaultBranch||null}
     },changes,async()=>{
-     if(!preflight.stdout&&!preflight.stderr)throw new AppError(422,"INVALID_GIT_BUNDLE","Git did not verify the supplied bundle.");
      await runGit(root,["bundle","unbundle",bundlePath]);
     }).then(async result=>{
-     if(input.defaultBranch){
-      const branch=String(input.defaultBranch);
-      await runGit(root,["check-ref-format","--branch",branch]);
-      if(!refs.some(item=>item.ref==="refs/heads/"+branch))throw new AppError(400,"DEFAULT_BRANCH_NOT_IMPORTED","The requested default branch is not included in the bundle.");
-      await runGit(root,["symbolic-ref","HEAD","refs/heads/"+branch]);
+     if(defaultBranch){
+      await runGit(root,["symbolic-ref","HEAD","refs/heads/"+defaultBranch]);
      }
      return {...result,bundleSha256,refCount:refs.length};
     });

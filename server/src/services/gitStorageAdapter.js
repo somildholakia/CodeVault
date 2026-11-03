@@ -1,4 +1,5 @@
 import {createHash,randomUUID} from "node:crypto";
+import {AsyncLocalStorage} from "node:async_hooks";
 import {execFile,spawn} from "node:child_process";
 import {createReadStream} from "node:fs";
 import fs from "node:fs/promises";
@@ -8,6 +9,7 @@ import {promisify} from "node:util";
 import {AppError} from "../utils/errors.js";
 
 const execFileAsync=promisify(execFile);
+const adapterLeaseContext=new AsyncLocalStorage();
 const SHA_PATTERN=/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i;
 const REPOSITORY_ID_PATTERN=/^[a-f0-9]{24}$/i;
 const OPERATION_ID_PATTERN=/^[A-Za-z0-9_-]{8,128}$/;
@@ -41,20 +43,26 @@ function safeError(error){
 }
 
 async function runGit(cwd,args,{allowMissing=false}={}){
+ const assertOwned=adapterLeaseContext.getStore();
+ if(assertOwned)await assertOwned();
+ let result;
  try{
-  const result=await execFileAsync("git",args,{
+  result=await execFileAsync("git",args,{
    cwd,timeout:120000,maxBuffer:MAX_GIT_OUTPUT,windowsHide:true,
    env:{...process.env,GIT_TERMINAL_PROMPT:"0",GIT_CONFIG_NOSYSTEM:"1"}
   });
-  return {stdout:String(result.stdout||""),stderr:String(result.stderr||"")};
  }catch(error){
+  if(assertOwned)await assertOwned();
   if(allowMissing&&error.code===1)return {stdout:"",stderr:String(error.stderr||"")};
   throw new AppError(409,"GIT_STORAGE_OPERATION_FAILED",safeError(error));
  }
+ if(assertOwned)await assertOwned();
+ return {stdout:String(result.stdout||""),stderr:String(result.stderr||"")};
 }
 
 function runGitInput(cwd,args,input){
- return new Promise((resolve,reject)=>{
+ const assertOwned=adapterLeaseContext.getStore();
+ return (async()=>{if(assertOwned)await assertOwned();return new Promise((resolve,reject)=>{
   const child=spawn("git",args,{
    cwd,windowsHide:true,
    env:{...process.env,GIT_TERMINAL_PROMPT:"0",GIT_CONFIG_NOSYSTEM:"1"}
@@ -81,7 +89,7 @@ function runGitInput(cwd,args,input){
   });
   child.stdin.on("error",()=>{});
   child.stdin.end(input);
- });
+ });})().then(async result=>{if(assertOwned)await assertOwned();return result;},async error=>{if(assertOwned)await assertOwned();throw error;});
 }
 
 async function atomicWriteJson(file,value){
@@ -319,7 +327,15 @@ export function createLocalGitStorageAdapter(options={}){
 
  async function scoped(id,callback){
   const safeId=repositoryId(id);
-  return withLease(safeId,lease=>callback(lease||null));
+  return withLease(safeId,async lease=>{
+   const assertOwned=typeof lease?.assertOwned==="function"?()=>lease.assertOwned():null;
+   return adapterLeaseContext.run(assertOwned,async()=>{
+    if(assertOwned)await assertOwned();
+    const result=await callback(lease||null);
+    if(assertOwned)await assertOwned();
+    return result;
+   });
+  });
  }
 
  return Object.freeze({

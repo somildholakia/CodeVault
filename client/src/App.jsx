@@ -1,6 +1,6 @@
 import {useEffect,useState} from "react";
 import {BrowserRouter,Link,NavLink,Route,Routes,useNavigate,useParams} from "react-router-dom";
-import {Activity,ArrowRight,ChevronRight,CircleDot,FolderGit2,GitBranch,GitCommitHorizontal,GitMerge,LayoutDashboard,LogOut,Plus,Search,ShieldCheck,Users,FileCode2,Code2,X,AlertCircle,LockKeyhole,Globe2,MessageSquare,UserPlus,Clock3,Check,RefreshCw,ChevronDown,GitPullRequest,Tag,GitFork,ArrowLeftRight,History} from "lucide-react";
+import {Activity,ArrowRight,ChevronRight,CircleDot,FolderGit2,GitBranch,GitCommitHorizontal,GitMerge,LayoutDashboard,LogOut,Plus,Search,ShieldCheck,Users,FileCode2,Code2,X,AlertCircle,LockKeyhole,Globe2,MessageSquare,UserPlus,Clock3,Check,RefreshCw,ChevronDown,GitPullRequest,Tag,GitFork,ArrowLeftRight,History,Download} from "lucide-react";
 import {api} from "./lib/api.js";
 const date=v=>v?new Date(v).toLocaleDateString():"—";
 const sha=v=>v?String(v).slice(0,7):"—";
@@ -149,6 +149,10 @@ const createBranch=async e=>{e.preventDefault();setError("");try{const name=bran
  return <div className="page">
   <div className="repo-crumb"><Link to="/repositories">Repositories</Link><ChevronRight size={13}/><b>{repo.name}</b><span className="badge">{repo.visibility}</span></div>
   <div className="repo-title"><span className="repo-icon"><FolderGit2 size={22}/></span><div><h1>{repo.name}</h1><p>{repo.description||"Source, version history, and project work."}</p><small>Owned by {repo.owner?.username||"member"} · default branch {repo.defaultBranch}</small></div></div>
+  <div className="repo-actions">
+   <button className="btn outline small" type="button" onClick={()=>window.location.assign("/api/repositories/"+id+"/backup")}><Download size={14}/> Download Git backup</button>
+   <span className="note">Verified bundle · committed branches and tags</span>
+  </div>
   <div className="repo-tabs">{tabs.map(([v,label])=><button key={v} className={tab===v?"selected":""} onClick={()=>{setTab(v);setError("");setNotice("");}}>{label}{v==="branches"&&branches.length>0?<span className="badge">{branches.length}</span>:null}{v==="issues"?<span className="badge">{issues.length||""}</span>:null}</button>)}</div>
   {error&&<div className="error"><AlertCircle size={15}/>{error}</div>}{notice&&<div className="notice"><Check size={14}/>{notice}<button onClick={()=>setNotice("")}>Dismiss</button></div>}
   {tab==="overview"&&<div className="repo-layout">

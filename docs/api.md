@@ -21,7 +21,7 @@ Registration body: `{ username, displayName, email, password }`. Passwords are b
 | GET | `/repositories` | Signed in |
 | POST | `/repositories` | Signed in; requires durable Git storage in production |
 | GET | `/repositories/:id` | Owner/collaborator or public repository |
-| GET | `/repositories/:id/backup` | Repository reader; streams a verified Git bundle containing committed branches and tags |
+| GET | `/repositories/:id/backup` | Repository reader; streams a verified Git bundle containing committed branches and tags; limited to 3 downloads per 15 minutes per IP |
 | GET | `/repositories/:id/files?ref=main` | Repository reader |
 | GET | `/repositories/:id/search?q=term&ref=main&limit=100` | Repository reader; tracked text files only |
 | GET | `/repositories/:id/insights?ref=all&days=90` | Repository reader; real Git contribution and file activity |

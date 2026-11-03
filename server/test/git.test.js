@@ -565,14 +565,8 @@ test("exports a verified Git bundle that restores branches, tags and full commit
   const bytes = await fs.readFile(backup.path);
   assert.equal(createHash("sha256").update(bytes).digest("hex"),backup.sha256);
 
-  // Restore every branch and tag explicitly into a bare repository. A plain
-  // clone checks out one branch and exposes the others as remote-tracking refs.
-  execFileSync("git",["init","--bare","--quiet",restoredPath],{stdio:"pipe"});
-  for (const ref of backup.refs) {
-   execFileSync("git",[
-    "fetch","--quiet",backup.path,ref.ref+":"+ref.ref
-   ],{cwd:restoredPath,stdio:"pipe"});
-  }
+  // A bare clone of a bundle preserves all advertised branch and tag refs.
+  execFileSync("git",["clone","--bare","--quiet",backup.path,restoredPath],{stdio:"pipe"});
 
   const restoredRefs = execFileSync("git",[
    "for-each-ref","--format=%(refname)"

@@ -10,7 +10,7 @@ Last verified: 2026-11-03 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Latest branch head: `8279b56e53878d2f031c45b91462e97bb4e5e7a4`
+- Latest application-code checkpoint: `8279b56e53878d2f031c45b91462e97bb4e5e7a4`. The latest handoff/documentation checkpoint verified by PR CI is `dfdc24555014067c8e98f44f2f143a863e5b6f59`; re-fetch the branch ref before editing.
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change — portable Git backup and local restore
@@ -34,18 +34,18 @@ This is a manual portable recovery path only. It does not schedule backups or st
 
 ## Latest verified CI
 
-PR workflow passed against branch head `8279b56e53878d2f031c45b91462e97bb4e5e7a4`:
+PR workflow passed against handoff checkpoint `dfdc24555014067c8e98f44f2f143a863e5b6f59`:
 
-- PR CI #266: https://github.com/somildholakia/CodeVault/actions/runs/41573607941 — passed.
+- PR CI #268: https://github.com/somildholakia/CodeVault/actions/runs/41573802464 — passed.
 - Backend tests: 109 passed, 0 failed.
 - Product website tests: 7 passed, 0 failed.
 - Frontend production build: passed.
 - Backend JavaScript syntax validation: passed.
 - Git bundle restore-integrity and existing-target protection tests: passed.
 
-Push CI #265 for the same head is still pending at the time of this checkpoint:
-- https://github.com/somildholakia/CodeVault/actions/runs/41573600299
-- Do not describe this push workflow as passed unless its final conclusion is checked.
+Push CI #267 for the same checkpoint is pending at the time of this handoff update:
+- https://github.com/somildholakia/CodeVault/actions/runs/41573797894
+- Do not describe the push workflow as passed unless its final conclusion is checked.
 
 ## Production storage topology — do not change without explicit approval
 

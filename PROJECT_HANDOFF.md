@@ -10,7 +10,7 @@ Last verified: 2026-11-03 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Latest application-code checkpoint: `8279b56e53878d2f031c45b91462e97bb4e5e7a4`. This branch may contain newer handoff/documentation-only commits; re-fetch its current ref before editing.
+- Latest application-code checkpoint: `a5710c1ac8511eb9a02483ce641fb0a88103755f` (provider-facing local Git adapter and contract tests). Latest docs checkpoint before this handoff update: `66d4c8386a85c7af993980e795072bed47ac90a0`. Re-fetch the branch head before editing.
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change — portable Git backup and local restore
@@ -45,6 +45,33 @@ Both workflows passed against the implementation-equivalent checkpoint `c77086de
 - Git bundle restore-integrity, restore CLI and existing-target protection tests: passed.
 
 These results cover the latest application-code checkpoint `8279b56e53878d2f031c45b91462e97bb4e5e7a4`; documentation-only commits after that checkpoint do not change application behavior. Re-fetch Actions before treating later branch-head runs as current.
+
+## Latest completed change — local Git storage adapter increment
+
+Application-code checkpoint: `a5710c1ac8511eb9a02483ce641fb0a88103755f`.
+
+- Added `server/src/services/gitStorageAdapter.js`, a local filesystem implementation of the provider-facing Git storage boundary.
+- Uses native `git update-ref --stdin` transactions with expected-old-object checks for atomic ref create/update/delete.
+- Adds a monotonic observed repository generation backed by a SHA-256 digest of the sorted ref map. The next adapter generation read detects legacy direct-Git ref changes and advances the observed generation, so stale expected generations are rejected.
+- Uses operation IDs bound to request payload hashes. Replaying the same operation returns the committed result; reusing an ID with a different payload is rejected.
+- Stores durable operation journal/state in `.codevault-state/<repositoryId>` next to, but outside, `.git`; internal state is not exported in repository bundles.
+- On recovery, prepared operations are reconciled against the before/after ref values: all-after is finalized, all-before is marked aborted, and mixed state fails closed for operator reconciliation.
+- Bundle import verifies the bundle, imports objects first, validates object targets and then atomically publishes refs. Export produces a verified bundle with size/hash/ref metadata. Repository verification runs `git fsck --full --connectivity-only`.
+- Adapter subprocesses re-check the active MongoDB repository lease before and after execution. The adapter does not replace MongoDB coordination or make separate local disks safe for multi-instance deployment.
+- Integrated the adapter into `git.js` for repository path resolution, atomic branch creation/deletion and portable backup export. Import and verification adapter methods are exposed at the service layer; most commit/merge/revert/tag operations remain on the existing direct Git paths and are not yet fully migrated.
+- Added `server/test/gitStorageAdapter.test.js`: CAS, operation-ID idempotency, stale generation/fence rejection, independent adapter concurrency, interrupted-operation recovery, bundle import/export, ref-drift detection, service delegation, lease-loss guard and expected-SHA deletion tests.
+- Updated README and architecture docs. No remote provider was built, no production writes were enabled, and no Render/Vercel deployment or paid service was changed.
+
+## Latest verified CI
+
+Both GitHub Actions workflows passed against implementation-equivalent commit `ae4619274b0689fbec17b9cd64e33f90979420fb` (which includes application-code checkpoint `a5710c1`):
+
+- Push CI #319: https://github.com/somildholakia/CodeVault/actions/runs/41577215316 — passed.
+- PR CI #320: https://github.com/somildholakia/CodeVault/actions/runs/41577220736 — passed.
+- Backend tests: 120 passed, 0 failed.
+- Product website tests: 7 passed, 0 failed.
+- Frontend production build and backend JavaScript syntax validation: passed.
+- These are GitHub Actions results. Separate Vercel status contexts still report `build-rate-limit`; treat those as external deployment-check failures, not passing builds.
 
 ## Production storage topology — do not change without explicit approval
 
@@ -94,7 +121,7 @@ For full feature inventory and local setup details, see `README.md`.
 
 ## Next recommended engineering task
 
-Implement the provider-neutral adapter interface and a local filesystem adapter behind the existing Git service without changing route behavior. Add shared adapter contract tests for atomic expected-SHA ref updates, operation-ID idempotency, stale-generation rejection, bundle import/export and repository verification. Then add crash-injection tests around object persistence and ref publication. Do not implement or deploy the remote provider yet; do not enable production writes or multi-instance writes until a real provider passes the integration matrix. Do not add paid infrastructure without Somil's explicit approval.
+Continue migrating existing Git mutation paths to the adapter while preserving current API behavior. Start with file commits using a Git-object pipeline (`hash-object`, `mktree`, `commit-tree`) followed by expected-head CAS, and add crash-injection tests around object persistence, journal preparation and ref publication. Then migrate merge/revert/tag paths carefully. Add sidecar state cleanup to repository deletion and expand adapter contract tests. Do not expose the adapter as a public API or enable production writes yet. Keep remote service/provider selection and deployment behind explicit approval.
 
 ## Working rules for the next chat
 

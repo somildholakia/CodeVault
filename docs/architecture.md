@@ -40,6 +40,9 @@ flowchart LR
 
 Git objects are not duplicated in MongoDB.
 
+## Portable repository backups
+
+The repository backup endpoint acquires the repository lease, creates a full Git bundle with all refs, verifies the bundle, enforces a configured size ceiling, calculates SHA-256 and then streams the immutable file to an authorized reader. The temporary bundle directory is removed after success, client disconnect or stream failure. A downloaded bundle can be restored independently with `git clone <bundle> <directory>`; only committed refs are included. This makes a manual off-host copy possible without treating Render's ephemeral filesystem as durable. It is not an automated backup schedule or remote storage provider.
 ## Authorization
 
 | Role | Read | Create commits/branches/issues/PRs | Review PR | Merge PR | Manage collaborators |

@@ -59,7 +59,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/test/` — temporary Git repository, cross-worker lease contention/recovery/fencing, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, pull-request lifecycle, repository-cleanup and full-history activity tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
-Remote automated backup retention, a provider-backed Git storage service and external notifications remain future work. The current Git bundle download is portable and can be restored locally with the CLI below, but it does not create an off-site backup automatically. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
+Remote automated backup retention, a provider-backed Git storage service and external notifications remain future work. The provider-neutral storage invariants, remote protocol, crash-recovery contract and rollout gates are specified in [docs/git-storage-provider-contract.md](./docs/git-storage-provider-contract.md). The current Git bundle download is portable and can be restored locally with the CLI below, but it does not create an off-site backup automatically. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
 
 ## Product website
 

@@ -14,7 +14,7 @@ A version-control and collaboration workspace for student development teams. Cod
 
 - Registration, login, logout and profile updates.
 - Repository creation with a real initial Git commit, README, .gitignore and MIT license option.
-- Owner/collaborator-authorized portable Git bundle downloads, verified before streaming, covering committed branches and tags with a SHA-256 checksum.
+- Owner/collaborator-authorized portable Git bundle downloads, verified before streaming, covering committed branches and tags with a SHA-256 checksum and a per-IP download limit.
 - Owner-confirmed repository deletion serialized against Git writes, with dependent issues, pull requests, branch rules, collaborators, activity and number counters purged.
 - Public/private repository metadata and server-side owner/collaborator permission checks.
 - File browsing, in-browser text editing, commit creation, history and commit diffs.

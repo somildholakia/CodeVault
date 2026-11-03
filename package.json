@@ -10,7 +10,8 @@
     "dev": "concurrently -n api,web -c green,cyan \"npm run dev --workspace=server\" \"npm run dev --workspace=client\"",
     "build": "npm run build --workspace=client",
     "test": "npm run test --workspace=server",
-    "lint": "npm run build && npm run lint --workspace=server"
+    "lint": "npm run build && npm run lint --workspace=server",
+    "restore:bundle": "node scripts/restore-git-bundle.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

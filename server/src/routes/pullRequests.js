@@ -8,10 +8,10 @@ import Activity from "../models/Activity.js";
 import BranchProtection from "../models/BranchProtection.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
-import {listBranches,previewMerge,mergeBranches,listCommits,withRepositoryLock,diffBranches,isAddedDiffLine} from "../services/git.js";
+import {listBranches,previewMerge,mergeBranches,withRepositoryLock,diffBranches,isAddedDiffLine,inspectPullRequestMerge} from "../services/git.js";
 import {evaluateReviewGate,selectBranchProtection} from "../services/pullRequestPolicy.js";
 import {nextSequence} from "../services/sequences.js";
-import {assertPullRequestOpen,claimPullRequestMerge,completePullRequestMerge,releasePullRequestMerge} from "../services/pullRequestLifecycle.js";
+import {assertPullRequestOpen,claimPullRequestMerge,completePullRequestMerge,releasePullRequestMerge,reconcilePullRequestMerge} from "../services/pullRequestLifecycle.js";
 const router=Router();router.use(requireAuth);
 async function findRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id);if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,userId){if(repo.owner.toString()===userId.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:userId,acceptedAt:{$ne:null}});return c?.role||null;}
@@ -137,26 +137,56 @@ router.post("/:id/close",asyncHandler(async(req,res)=>{
  await record(req.user._id,pr,"pull_request.closed","Closed pull request #"+pr.number+".");
  res.json({pullRequest:await loadPullRequest(pr._id)});
 }));
+router.post("/:id/reconcile-merge",asyncHandler(async(req,res)=>{
+ const initial=await loadPullRequest(req.params.id);
+ assertManage(await roleFor(initial.repository,req.user._id));
+ if(initial.status!=="merging")throw new AppError(409,"PULL_REQUEST_NOT_MERGING","Only an interrupted merge can be reconciled.");
+
+ const outcome=await withRepositoryLock(initial.repository._id,async()=>{
+  const current=await loadPullRequest(initial._id);
+  if(current.status!=="merging")throw new AppError(409,"PULL_REQUEST_STATE_CHANGED","The pull-request merge state changed before recovery.");
+  return reconcilePullRequestMerge(
+   current._id,
+   pins=>inspectPullRequestMerge(current.repository._id,pins)
+  );
+ });
+ const updated=await loadPullRequest(initial._id);
+ if(outcome.state==="merged"){
+  await record(outcome.mergedBy||req.user._id,updated,"pull_request.merged","Recovered and finalized pull request #"+updated.number+": "+updated.title+".");
+ }else{
+  await record(req.user._id,updated,"pull_request.merge_recovered","Reopened pull request #"+updated.number+" after Git proved the interrupted merge had not completed.");
+ }
+ res.json({pullRequest:updated,recovery:outcome.state,mergeCommit:outcome.mergeCommit||null});
+}));
+
 router.post("/:id/merge",asyncHandler(async(req,res)=>{
  const initial=await loadPullRequest(req.params.id);
  assertManage(await roleFor(initial.repository,req.user._id));
  assertPullRequestOpen(initial,"merged");
 
- // Atomically claim the PR state before validating mutable reviews or touching Git.
- // All review/comment/close writes use status=open compare-and-set filters, so they
- // cannot slip in after this claim.
- await claimPullRequestMerge(initial._id);
-
- let mergeResult;
+ let mergeClaimed=false;
+ let gitMergeAttempted=false;
  let gitMergeCompleted=false;
+ let mergeResult;
  try {
   mergeResult=await withRepositoryLock(initial.repository._id,async()=>{
    const pr=await loadPullRequest(initial._id);
-   if(pr.status!=="merging")throw new AppError(409,"PULL_REQUEST_STATE_CHANGED","The pull-request merge claim is no longer active.");
+   assertPullRequestOpen(pr,"merged");
    assertManage(await roleFor(pr.repository,req.user._id));
 
-   const sourceBranch=(await listBranches(pr.repository._id)).find(item=>item.name===pr.sourceBranch);
+   const branches=await listBranches(pr.repository._id);
+   const sourceBranch=branches.find(item=>item.name===pr.sourceBranch);
+   const targetBranch=branches.find(item=>item.name===pr.targetBranch);
    if(!sourceBranch)throw new AppError(409,"SOURCE_BRANCH_MISSING","The pull-request source branch no longer exists.");
+   if(!targetBranch)throw new AppError(409,"TARGET_BRANCH_MISSING","The pull-request target branch no longer exists.");
+
+   // Pin both refs in the same repository lock before closing review/comment writes.
+   await claimPullRequestMerge(pr._id,{
+    sourceSha:sourceBranch.sha,
+    targetSha:targetBranch.sha,
+    claimedBy:req.user._id
+   });
+   mergeClaimed=true;
 
    const protection=await protectionForBranch(pr.repository,pr.targetBranch);
    const gate=evaluateReviewGate(pr.reviews,pr.author._id,{
@@ -176,10 +206,16 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
 
    const preview=await previewMerge(pr.repository._id,pr.sourceBranch,pr.targetBranch);
    if(!preview.canMerge)throw new AppError(409,"MERGE_CONFLICT","Resolve the branch conflicts before merging.",{conflicts:preview.conflicts,files:preview.files});
-   await mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,preview.targetHead,sourceBranch.sha);
+   if(preview.sourceSha!==sourceBranch.sha||preview.targetHead!==targetBranch.sha) {
+    throw new AppError(409,"BRANCH_MOVED","A pull-request branch moved while the merge was being prepared. Refresh and try again.");
+   }
+
+   // Once Git is invoked, preserve the claim on every uncertain failure. Recovery
+   // will inspect refs before deciding whether it is safe to reopen the PR.
+   gitMergeAttempted=true;
+   const gitResult=await mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,targetBranch.sha,sourceBranch.sha);
    gitMergeCompleted=true;
-   const latest=await listCommits(pr.repository._id,pr.targetBranch,1);
-   const mergeCommit=latest[0]?.sha||"";
+   const mergeCommit=gitResult.targetHead||"";
    await completePullRequestMerge(pr._id,{
     mergedBy:req.user._id,
     mergedAt:new Date(),
@@ -192,10 +228,9 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
   await record(req.user._id,completed,"pull_request.merged","Merged pull request #"+mergeResult.number+": "+mergeResult.title+".");
   res.json({pullRequest:completed,mergeCommit:mergeResult.mergeCommit});
  } catch(error) {
-  // Never reopen after Git has moved the target branch. A later request must
-  // reconcile a merge whose database finalization failed, rather than create a
-  // second PR or risk applying the merge twice.
-  if(!gitMergeCompleted)await releasePullRequestMerge(initial._id).catch(()=>{});
+  // Before Git is invoked we can safely release our own claim. Once Git is
+  // attempted, keep the pinned claim until ancestry reconciliation proves a result.
+  if(mergeClaimed&&!gitMergeAttempted&&!gitMergeCompleted)await releasePullRequestMerge(initial._id).catch(()=>{});
   throw error;
  }
 }));

@@ -575,7 +575,7 @@ test("exports a verified Git bundle that restores branches, tags and full commit
   ],{cwd:restoredPath,stdio:"pipe"});
 
   const restoredRefs = execFileSync("git",[
-   "for-each-ref","--format=%(refname)","refs/heads","refs/tags"
+   "for-each-ref","--format=%(refname)","refs/heads/*","refs/tags/*"
   ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
   const restoredBranches = restoredRefs.filter(ref=>ref.startsWith("refs/heads/"));
   const restoredTags = restoredRefs.filter(ref=>ref.startsWith("refs/tags/"));

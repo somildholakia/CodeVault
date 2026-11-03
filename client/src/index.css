@@ -339,3 +339,8 @@ button.pr-diff-line.added:hover>em,button.pr-diff-line.added.selected>em{opacity
 @media(max-width:620px){.dependency-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.dependency-finding{padding:9px}}
 
 .badge.merging{background:#fff0d8;color:#8b5b15}
+
+
+/* Verified repository backup action */
+.repo-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:-6px}
+@media(max-width:620px){.repo-actions{align-items:flex-start;flex-direction:column;gap:6px}}

@@ -1,6 +1,6 @@
 import test,{after} from "node:test";
 import {execFileSync} from "node:child_process";
-import {createHash} from "node:crypto";
+import {createHash,randomBytes} from "node:crypto";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -596,8 +596,8 @@ test("removes temporary backup files when the bundle exceeds the configured limi
  process.env.MAX_REPOSITORY_BACKUP_SIZE_MB = "1";
  try {
   const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
-  const randomText = Array.from({length:1_200_000},(_,index)=>String.fromCharCode(33+(index*73)%90)).join("");
-  await fs.writeFile(path.join(git.repositoryPath(id),"large.txt"),randomText);
+  const randomData = randomBytes(1_200_000);
+  await fs.writeFile(path.join(git.repositoryPath(id),"large.bin"),randomData);
   execFileSync("git",["add","--all"],{cwd:git.repositoryPath(id),stdio:"pipe"});
   execFileSync("git",["-c","user.name=Test User","-c","user.email=test@codevault.local","commit","-m","Add backup size fixture"],{cwd:git.repositoryPath(id),stdio:"pipe"});
   await assert.rejects(

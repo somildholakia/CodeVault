@@ -9,6 +9,83 @@ const storage=path.resolve(process.env.REPO_STORAGE_PATH||path.join(process.cwd(
 const locks=new Map();
 export function repositoryPath(id){if(!/^[a-f0-9]{24}$/i.test(String(id||"")))throw new AppError(400,"INVALID_REPOSITORY_ID","Invalid repository identifier.");const target=path.resolve(storage,String(id));if(!target.startsWith(storage+path.sep))throw new AppError(400,"INVALID_REPOSITORY_PATH","Invalid repository path.");return target;}
 export async function withRepositoryLock(id,fn){const key=String(id),prior=locks.get(key)||Promise.resolve();let release;const current=new Promise(resolve=>{release=resolve;});locks.set(key,current);await prior.catch(()=>{});try{return await fn();}finally{release();if(locks.get(key)===current)locks.delete(key);}}
+export async function inspectPullRequestMerge(id, claim = {}) {
+  const root = repositoryPath(id);
+  const sourceSha = claim.sourceSha;
+  const targetSha = claim.targetSha;
+  if (typeof sourceSha !== "string" || !/^[a-f0-9]{40}$/i.test(sourceSha) ||
+      typeof targetSha !== "string" || !/^[a-f0-9]{40}$/i.test(targetSha)) {
+    return {state: "ambiguous", reason: "The recorded source or target SHA is invalid."};
+  }
+
+  let sourceBranch, targetBranch, sourceObject, targetObject;
+  try {
+    sourceBranch = safeRef(claim.sourceBranch);
+    targetBranch = safeRef(claim.targetBranch);
+    const [sourceRef, targetRef] = await Promise.all([
+      git(root, ["rev-parse", "--verify", "refs/heads/" + sourceBranch + "^{commit}"]),
+      git(root, ["rev-parse", "--verify", "refs/heads/" + targetBranch + "^{commit}"])
+    ]);
+    const [sourceExists, targetExists] = await Promise.all([
+      git(root, ["cat-file", "-e", sourceSha + "^{commit}"]),
+      git(root, ["cat-file", "-e", targetSha + "^{commit}"])
+    ]);
+    sourceObject = sourceExists;
+    targetObject = targetExists;
+    if (!sourceRef.stdout.trim() || !targetRef.stdout.trim() || !sourceObject || !targetObject) {
+      return {state: "ambiguous", reason: "A recorded branch ref or pinned commit is unavailable."};
+    }
+    const sourceHead = sourceRef.stdout.trim();
+    const targetHead = targetRef.stdout.trim();
+
+    const isAncestor = async (ancestor, descendant) => {
+      try {
+        await execFileAsync("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+          cwd: root,
+          timeout: 20000,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+          env: {...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1"}
+        });
+        return true;
+      } catch (error) {
+        if (error.code === 1) return false;
+        const detail = [error.stderr, error.stdout].filter(Boolean).map(String).join("\\n").trim();
+        throw new AppError(409, "GIT_RECONCILIATION_FAILED", (detail || "Git could not verify commit ancestry.").slice(0, 500));
+      }
+    };
+
+    // A source already contained in the target snapshot is a valid no-op merge.
+    if (await isAncestor(sourceSha, targetSha)) {
+      return {state: "completed", mergeCommit: targetSha, noOp: true, sourceHead, targetHead};
+    }
+
+    if (await isAncestor(sourceSha, targetHead)) {
+      // Only accept a target that advanced from the exact target snapshot we pinned.
+      if (!(await isAncestor(targetSha, targetHead))) {
+        return {state: "ambiguous", reason: "The target ref no longer descends from the claimed target SHA."};
+      }
+      const commits = (await git(root, [
+        "rev-list", "--first-parent", "--reverse", targetHead, "^" + targetSha
+      ])).stdout.split(/\\r?\\n/).filter(Boolean);
+      for (const candidate of commits) {
+        if (await isAncestor(sourceSha, candidate)) {
+          return {state: "completed", mergeCommit: candidate, sourceHead, targetHead};
+        }
+      }
+      return {state: "ambiguous", reason: "The target contains the source, but its first-parent merge commit could not be identified."};
+    }
+
+    if (targetHead === targetSha) {
+      return {state: "not_completed", sourceHead, targetHead};
+    }
+
+    return {state: "ambiguous", reason: "The target moved but does not contain the pinned source commit."};
+  } catch (error) {
+    return {state: "ambiguous", reason: String(error?.message || error).slice(0, 500)};
+  }
+}
+
 async function git(root,args){try{const r=await execFileAsync("git",args,{cwd:root,timeout:20000,maxBuffer:4*1024*1024,windowsHide:true,env:{...process.env,GIT_TERMINAL_PROMPT:"0",GIT_CONFIG_NOSYSTEM:"1"}});return {stdout:String(r.stdout||""),stderr:String(r.stderr||"")};}catch(e){const detail=[e.stderr,e.stdout].filter(Boolean).map(String).join("\n").trim();if(/not a git repository/i.test(detail))throw new AppError(404,"GIT_REPOSITORY_MISSING","Repository Git data is unavailable.");if(/already exists/i.test(detail))throw new AppError(409,"GIT_REF_EXISTS","A ref with that name already exists.");if(/CONFLICT|Automatic merge failed/i.test(detail))throw new AppError(409,"GIT_CONFLICT","Git could not merge these changes.",{message:detail.slice(0,12000)});throw new AppError(400,"GIT_OPERATION_FAILED",(detail||"Git could not complete the operation.").slice(0,700));}}
 function safeRef(value){if(typeof value!=="string"||!value||value.length>160||value.startsWith("-")||!/^[A-Za-z0-9_./-]+$/.test(value)||value.includes("..")||value.includes("//")||value.endsWith("/")||value.endsWith("."))throw new AppError(400,"INVALID_GIT_REF","Invalid Git reference.");return value;}
 function safePath(value){if(typeof value!=="string"||!value||value.length>500||value.includes("\0")||value.includes("\\")||value.startsWith("/")||/^[A-Za-z]:/.test(value))throw new AppError(400,"INVALID_FILE_PATH","A safe repository-relative file path is required.");const parts=value.split("/");if(parts.some(p=>!p||p==="."||p===".."||p===".git"))throw new AppError(400,"INVALID_FILE_PATH","Absolute paths, parent traversal and Git internals are not accessible.");return parts.join("/");}

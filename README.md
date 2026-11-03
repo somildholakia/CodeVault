@@ -15,6 +15,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Registration, login, logout and profile updates.
 - Repository creation with a real initial Git commit, README, .gitignore and MIT license option.
 - Owner/collaborator-authorized portable Git bundle downloads, verified before streaming, covering committed branches and tags with a SHA-256 checksum and a per-IP download limit.
+- One-command local bundle restoration into a new bare repository, with full branch/tag ref reconstruction, object-connectivity verification and no-overwrite protection.
 - Owner-confirmed repository deletion serialized against Git writes, with dependent issues, pull requests, branch rules, collaborators, activity and number counters purged.
 - Public/private repository metadata and server-side owner/collaborator permission checks.
 - File browsing, in-browser text editing, commit creation, history and commit diffs.
@@ -53,15 +54,28 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/services/repositoryCleanup.js` — repository-scoped dependent-record cleanup.
 - `server/src/services/repositoryLock.js` — MongoDB lease, heartbeat, fencing and ownership validation.
 - `server/src/services/git.js` — verified Git bundle snapshots for portable repository backup and restore.
+- `scripts/restore-git-bundle.js` — local CLI that verifies a downloaded bundle and reconstructs all supported refs in a new bare repository.
 - `server/test/` — temporary Git repository, cross-worker lease contention/recovery/fencing, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, pull-request lifecycle, repository-cleanup and full-history activity tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
-Remote automated backup retention, a provider-backed Git storage service and external notifications remain future work. The current manual Git bundle download is portable, but it does not create an off-site backup automatically. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
+Remote automated backup retention, a provider-backed Git storage service and external notifications remain future work. The current Git bundle download is portable and can be restored locally with the CLI below, but it does not create an off-site backup automatically. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
 
 ## Product website
 
 The standalone CodeVault product website lives in `website/`. The public site is live at https://codevault-site.vercel.app. It includes direct source ZIP/tar.gz links for this feature branch and a link to GitHub Releases. These archives are source code, not desktop installers. It explains the product workflows, links to the public source ZIP/tarball and documents the current setup path. It is intentionally a separate static site and can be deployed as its own Vercel project with root directory `website` and output directory `public`. No desktop installer is currently published.
 
+## Portable repository backups
+
+From a repository page, select **Download Git backup**. The server creates a verified `.bundle` file containing committed branches and tags and supplies a SHA-256 checksum. Store the downloaded file somewhere outside the Render service before relying on it as a recovery copy.
+
+Restore it locally with:
+
+```bash
+npm run restore:bundle -- --bundle ./codevault-project.bundle --target ./project-restored.git --default-branch main
+git clone ./project-restored.git ./project-working-copy
+```
+
+The target directory must not already exist. The restore tool verifies the bundle, imports its objects, recreates branch and tag refs, verifies object connectivity, and removes an incomplete target if restoration fails. Replace `main` when the repository's default branch has a different name. The bundle contains Git history only; accounts, collaborators, issues, pull requests and other MongoDB metadata are not included. This is a manual recovery workflow, not automatic off-site backup retention.
 ## Local setup
 
 Requirements: Node.js 20.11+, npm, Git 2.30+ and MongoDB.

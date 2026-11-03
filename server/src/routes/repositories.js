@@ -2,6 +2,8 @@ import {Router} from "express";
 import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import fs from "node:fs/promises";
+import {createReadStream} from "node:fs";
+import {pipeline} from "node:stream/promises";
 import {z} from "zod";
 import User from "../models/User.js";
 import Repository from "../models/Repository.js";
@@ -17,7 +19,7 @@ import {selectBranchProtection} from "../services/pullRequestPolicy.js";
 import {scanDependencies} from "../services/dependencyScanner.js";
 import {nextSequence} from "../services/sequences.js";
 import {purgeRepositoryRecords} from "../services/repositoryCleanup.js";
-import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,getContributionStats,withRepositoryLock} from "../services/git.js";
+import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranches,createBranch,previewMerge,mergeBranches,commitFile,diffCommit,searchCode,listCommitGraph,compareCommits,revertCommit,listTags,createTag,deleteTag,deleteBranch,fileHistory,fileBlame,resolveMergeConflicts,getContributionStats,createRepositoryBundle,withRepositoryLock} from "../services/git.js";
 import {assertRepositoryLease} from "../services/repositoryLock.js";
 const router=Router();router.use(requireAuth);
 const dependencyScanLimiter=rateLimit({windowMs:60000,limit:4,standardHeaders:"draft-7",legacyHeaders:false});
@@ -44,6 +46,30 @@ router.post("/",asyncHandler(async(req,res)=>{
  res.status(201).json({repository:await Repository.findById(repo._id).populate("owner","username displayName avatarUrl"),cloneUrl:null});
 }));
 router.get("/:id",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id),role=await roleFor(repo,req.user._id);assertRead(role,repo);res.json({repository:repo,permission:role||"public-viewer"});}));
+router.get("/:id/backup",asyncHandler(async(req,res)=>{
+ const repo=await getRepo(req.params.id);
+ assertRead(await roleFor(repo,req.user._id),repo);
+ const backup=await withRepositoryLock(repo._id,()=>createRepositoryBundle(repo._id));
+ const timestamp=new Date().toISOString().replace(/[:.]/g,"-");
+ const filename="codevault-"+repo.slug+"-"+timestamp+".bundle";
+ res.status(200);
+ res.set({
+  "Content-Type":"application/x-git-bundle",
+  "Content-Length":String(backup.sizeBytes),
+  "Content-Disposition":"attachment; filename=\""+filename+"\"",
+  "Cache-Control":"private, no-store",
+  "X-Content-SHA256":backup.sha256,
+  "X-Git-Ref-Count":String(backup.refs.length)
+ });
+ try{
+  await pipeline(createReadStream(backup.path),res);
+ }catch(error){
+  if(!res.headersSent)throw error;
+  res.destroy(error);
+ }finally{
+  await fs.rm(backup.directory,{recursive:true,force:true}).catch(()=>{});
+ }
+}));
 router.get("/:id/search",asyncHandler(async(req,res)=>{
  const repo=await getRepo(req.params.id);
  assertRead(await roleFor(repo,req.user._id),repo);

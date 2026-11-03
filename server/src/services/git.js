@@ -13,7 +13,7 @@ const storage=path.resolve(process.env.REPO_STORAGE_PATH||path.join(process.cwd(
 export const withRepositoryLock=createRepositoryLockManager();
 export const gitStorageAdapter=createLocalGitStorageAdapter({
  storageRoot:storage,
- withLease:async(id,callback)=>callback(await assertRepositoryLease(id))
+ withLease:async(id,callback)=>{const lease=await assertRepositoryLease(id);return callback(lease?{...lease,assertOwned:()=>assertRepositoryLease(id)}:null);}
 });
 export function repositoryPath(id){return gitStorageAdapter.repositoryPath(id);}
 export async function inspectPullRequestMerge(id, claim = {}) {

@@ -10,7 +10,7 @@ Last verified: 2026-11-03 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Latest application-code checkpoint: `8279b56e53878d2f031c45b91462e97bb4e5e7a4`. The latest handoff/documentation checkpoint verified by PR CI is `dfdc24555014067c8e98f44f2f143a863e5b6f59`; re-fetch the branch ref before editing.
+- Latest application-code checkpoint: `8279b56e53878d2f031c45b91462e97bb4e5e7a4`. Latest handoff/documentation checkpoint: `22cd03fe0a25b2148d8a031b4acdaf8be8327f4c`; re-fetch the current branch ref before editing.
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change — portable Git backup and local restore
@@ -34,16 +34,16 @@ This is a manual portable recovery path only. It does not schedule backups or st
 
 ## Latest verified CI
 
-PR workflow passed against handoff checkpoint `dfdc24555014067c8e98f44f2f143a863e5b6f59`:
+PR workflow passed against handoff checkpoint `22cd03fe0a25b2148d8a031b4acdaf8be8327f4c`:
 
-- PR CI #268: https://github.com/somildholakia/CodeVault/actions/runs/41573802464 — passed.
+- PR CI #270: https://github.com/somildholakia/CodeVault/actions/runs/41573940249 — passed.
 - Backend tests: 109 passed, 0 failed.
 - Product website tests: 7 passed, 0 failed.
 - Frontend production build: passed.
 - Backend JavaScript syntax validation: passed.
 - Git bundle restore-integrity and existing-target protection tests: passed.
 
-Push CI #267 for the same checkpoint is pending at the time of this handoff update:
+Push CI #269 for the same checkpoint remained queued at the time of this handoff update:
 - https://github.com/somildholakia/CodeVault/actions/runs/41573797894
 - Do not describe the push workflow as passed unless its final conclusion is checked.
 

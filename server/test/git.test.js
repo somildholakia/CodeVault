@@ -568,11 +568,11 @@ test("exports a verified Git bundle that restores branches, tags and full commit
   // Restore every branch and tag explicitly into a bare repository. A plain
   // clone checks out one branch and exposes the others as remote-tracking refs.
   execFileSync("git",["init","--bare","--quiet",restoredPath],{stdio:"pipe"});
-  execFileSync("git",[
-   "fetch","--quiet",backup.path,
-   "+refs/heads/*:refs/heads/*",
-   "+refs/tags/*:refs/tags/*"
-  ],{cwd:restoredPath,stdio:"pipe"});
+  for (const ref of backup.refs) {
+   execFileSync("git",[
+    "fetch","--quiet",backup.path,ref.ref+":"+ref.ref
+   ],{cwd:restoredPath,stdio:"pipe"});
+  }
 
   const restoredRefs = execFileSync("git",[
    "for-each-ref","--format=%(refname)"

@@ -1,5 +1,5 @@
 import {execFile} from "node:child_process";
-import {createHash} from "node:crypto";
+import {createHash,randomUUID} from "node:crypto";
 import {createReadStream} from "node:fs";
 import {promisify} from "node:util";
 import fs from "node:fs/promises";
@@ -7,10 +7,15 @@ import path from "node:path";
 import os from "node:os";
 import {AppError} from "../utils/errors.js";
 import {createRepositoryLockManager,assertRepositoryLease} from "./repositoryLock.js";
+import {createLocalGitStorageAdapter} from "./gitStorageAdapter.js";
 const execFileAsync=promisify(execFile);
 const storage=path.resolve(process.env.REPO_STORAGE_PATH||path.join(process.cwd(),"storage","repos"));
-export function repositoryPath(id){if(!/^[a-f0-9]{24}$/i.test(String(id||"")))throw new AppError(400,"INVALID_REPOSITORY_ID","Invalid repository identifier.");const target=path.resolve(storage,String(id));if(!target.startsWith(storage+path.sep))throw new AppError(400,"INVALID_REPOSITORY_PATH","Invalid repository path.");return target;}
 export const withRepositoryLock=createRepositoryLockManager();
+export const gitStorageAdapter=createLocalGitStorageAdapter({
+ storageRoot:storage,
+ withLease:async(id,callback)=>callback(await assertRepositoryLease(id))
+});
+export function repositoryPath(id){return gitStorageAdapter.repositoryPath(id);}
 export async function inspectPullRequestMerge(id, claim = {}) {
   const root = repositoryPath(id);
   const sourceSha = claim.sourceSha;
@@ -118,7 +123,24 @@ export async function listBranches(id){
  const names=refs.stdout.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
  return Promise.all(names.map(async name=>({name,sha:(await git(root,["rev-parse","refs/heads/"+safeRef(name)])).stdout.trim()})));
 }
-export async function createBranch(id,name,base="main"){const branch=safeRef(name),start=safeRef(base);if(!/^[A-Za-z0-9_./-]{1,120}$/.test(branch))throw new AppError(400,"INVALID_BRANCH_NAME","Branch name is invalid.");await git(repositoryPath(id),["check-ref-format","--branch",branch]);await git(repositoryPath(id),["branch","--",branch,start]);return {name:branch};}
+export async function createBranch(id,name,base="main",options={}){
+ const branch=safeRef(name),start=safeRef(base),root=repositoryPath(id);
+ if(!/^[A-Za-z0-9_./-]{1,120}$/.test(branch))throw new AppError(400,"INVALID_BRANCH_NAME","Branch name is invalid.");
+ await git(root,["check-ref-format","--branch",branch]);
+ const target=(await git(root,["rev-parse","--verify",start+"^{commit}"])).stdout.trim();
+ const lease=await assertRepositoryLease(id);
+ const expectedGeneration=await gitStorageAdapter.getGeneration({repositoryId:String(id)});
+ try{
+  await gitStorageAdapter.compareAndSwapRef({
+   repositoryId:String(id),ref:"refs/heads/"+branch,expectedObjectId:null,newObjectId:target,
+   expectedGeneration,operationId:options.operationId||randomUUID(),fencingToken:lease?.fence||0
+  });
+ }catch(error){
+  if(error.code==="STORAGE_REF_CONFLICT")throw new AppError(409,"GIT_REF_EXISTS","A branch with that name already exists.");
+  throw error;
+ }
+ return {name:branch};
+}
 
 async function createMergeSandbox(root, targetSha) {
   const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "codevault-merge-"));
@@ -435,55 +457,15 @@ export async function searchCode(id, query, ref = "main", limit = 100) {
 }
 
 export async function createRepositoryBundle(id) {
-  const root = repositoryPath(id);
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "codevault-backup-"));
-  const bundlePath = path.join(directory, "repository.bundle");
+ return gitStorageAdapter.exportBundle({repositoryId:String(id)});
+}
 
-  try {
-    // The caller holds the repository lease while this immutable snapshot is created.
-    await git(root, ["bundle", "create", bundlePath, "--all"]);
-    await git(root, ["bundle", "verify", bundlePath]);
+export async function importRepositoryBundle(options) {
+ return gitStorageAdapter.importBundle(options);
+}
 
-    const stat = await fs.stat(bundlePath);
-    const configuredLimit = Number(process.env.MAX_REPOSITORY_BACKUP_SIZE_MB || 500);
-    const limitMb = Number.isFinite(configuredLimit) && configuredLimit >= 1 && configuredLimit <= 2048
-      ? configuredLimit
-      : 500;
-    const maxBytes = limitMb * 1024 * 1024;
-    if (!stat.isFile() || stat.size < 1) {
-      throw new AppError(500, "BACKUP_EMPTY", "Git produced an empty repository backup.");
-    }
-    if (stat.size > maxBytes) {
-      throw new AppError(413, "BACKUP_TOO_LARGE", "The repository backup exceeds the configured download limit.", {
-        sizeBytes: stat.size,
-        maxBytes
-      });
-    }
-
-    const hash = createHash("sha256");
-    for await (const chunk of createReadStream(bundlePath)) hash.update(chunk);
-
-    const heads = await git(root, ["bundle", "list-heads", bundlePath]);
-    const refs = heads.stdout.split(/\r?\n/).filter(Boolean).map(row => {
-      const match = row.match(/^([a-f0-9]{40})\s+(.+)$/i);
-      return match ? {sha: match[1], ref: match[2]} : null;
-    }).filter(Boolean);
-
-    if (!refs.length) {
-      throw new AppError(500, "BACKUP_NO_REFS", "The repository backup contains no Git references.");
-    }
-
-    return {
-      directory,
-      path: bundlePath,
-      sizeBytes: stat.size,
-      sha256: hash.digest("hex"),
-      refs
-    };
-  } catch (error) {
-    await fs.rm(directory, {recursive: true, force: true}).catch(() => {});
-    throw error;
-  }
+export async function verifyGitRepository(id) {
+ return gitStorageAdapter.verifyRepository({repositoryId:String(id)});
 }
 
 export async function listTags(id) {

@@ -81,6 +81,8 @@ Configure `MONGODB_URI`, `JWT_SECRET` and the exact browser frontend origin in `
 
 Set `REPO_STORAGE_PATH` to an attached durable volume and set `REPO_STORAGE_DURABLE=true` only after verifying that volume. Repository writes deliberately remain blocked in production until durable Git storage is enabled. Repository locks use MongoDB leases by default (`REPO_LOCK_LEASE_MS=120000`, `REPO_LOCK_HEARTBEAT_MS=25000`, `REPO_LOCK_WAIT_MS=15000`); keep the lease longer than the maximum single Git command and the heartbeat well below the lease.
 
+The checked-in Render blueprint currently uses the Free plan and sets `REPO_STORAGE_DURABLE=false`, so production Git writes are intentionally disabled. Render Free services use ephemeral filesystems and do not support persistent disks. A Render persistent disk requires a paid service and restricts that service to one instance; horizontal scaling therefore needs an external shared filesystem or a dedicated Git storage service. Do not enable the durable-storage flag on the current Free blueprint.
+
 ## Verification and limitations
 
 Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews and invalid path/ref rejection. Pull-request review-policy tests check independent approvals and change-request blocking. Authentication cookie and request-origin policy tests cover production cross-site cookie attributes and cookie-authenticated mutation origins. GitHub Actions runs the frontend production build, backend syntax validation, backend tests and product website tests.

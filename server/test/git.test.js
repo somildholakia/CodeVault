@@ -553,7 +553,8 @@ test("exports a verified Git bundle that restores branches, tags and full commit
  await fs.writeFile(path.join(git.repositoryPath(id),"untracked.js"),"not part of committed history\\n");
 
  const backup = await git.createRepositoryBundle(id);
- const restoredPath = path.join(temp,"restored-"+id);
+ const restoredPath = path.join(temp,"restored-"+id+".git");
+ const workingPath = path.join(temp,"restored-working-"+id);
  try {
   assert.ok(backup.sizeBytes > 0);
   assert.match(backup.sha256,/^[a-f0-9]{64}$/);
@@ -563,34 +564,42 @@ test("exports a verified Git bundle that restores branches, tags and full commit
 
   const bytes = await fs.readFile(backup.path);
   assert.equal(createHash("sha256").update(bytes).digest("hex"),backup.sha256);
-  execFileSync("git",["clone","--quiet",backup.path,restoredPath],{stdio:"pipe"});
+
+  // Restore every branch and tag explicitly into a bare repository. A plain
+  // clone checks out one branch and exposes the others as remote-tracking refs.
+  execFileSync("git",["init","--bare","--quiet",restoredPath],{stdio:"pipe"});
+  execFileSync("git",[
+   "fetch","--quiet",backup.path,
+   "+refs/heads/*:refs/heads/*",
+   "+refs/tags/*:refs/tags/*"
+  ],{cwd:restoredPath,stdio:"pipe"});
 
   const restoredRefs = execFileSync("git",[
-   "for-each-ref","--format=%(refname)","refs/heads","refs/remotes/origin","refs/tags"
+   "for-each-ref","--format=%(refname)","refs/heads","refs/tags"
   ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
+  const restoredBranches = restoredRefs.filter(ref=>ref.startsWith("refs/heads/"));
   const restoredTags = restoredRefs.filter(ref=>ref.startsWith("refs/tags/"));
-  const mainRef = restoredRefs.includes("refs/heads/main")
-   ? "refs/heads/main"
-   : "refs/remotes/origin/main";
-  const featureRef = restoredRefs.includes("refs/heads/feature/backup")
-   ? "refs/heads/feature/backup"
-   : "refs/remotes/origin/feature/backup";
   const restoredFiles = execFileSync("git",[
-   "ls-tree","-r","--name-only",featureRef
+   "ls-tree","-r","--name-only","refs/heads/feature/backup"
   ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
 
-  assert.ok(restoredRefs.includes(mainRef));
-  assert.ok(restoredRefs.includes(featureRef));
+  assert.ok(restoredBranches.includes("refs/heads/main"));
+  assert.ok(restoredBranches.includes("refs/heads/feature/backup"));
   assert.ok(restoredTags.includes("refs/tags/v1.0.0"));
   assert.ok(restoredFiles.includes("src/backup.js"));
   assert.ok(!restoredFiles.includes("untracked.js"));
   assert.equal(
-   execFileSync("git",["rev-parse",featureRef],{cwd:restoredPath,encoding:"utf8"}).trim(),
+   execFileSync("git",["rev-parse","refs/heads/feature/backup"],{cwd:restoredPath,encoding:"utf8"}).trim(),
    source.sha
   );
+
+  execFileSync("git",["symbolic-ref","HEAD","refs/heads/main"],{cwd:restoredPath,stdio:"pipe"});
+  execFileSync("git",["clone","--quiet",restoredPath,workingPath],{stdio:"pipe"});
+  assert.ok((await fs.readdir(workingPath)).includes("README.md"));
  } finally {
   await fs.rm(backup.directory,{recursive:true,force:true});
   await fs.rm(restoredPath,{recursive:true,force:true});
+  await fs.rm(workingPath,{recursive:true,force:true});
  }
 });
 

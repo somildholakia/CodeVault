@@ -84,9 +84,17 @@ The checked-in `render.yaml` declares the Free plan and `REPO_STORAGE_DURABLE=fa
 
 For full feature inventory and local setup details, see `README.md`.
 
+## Latest checkpoint — provider-neutral Git storage contract (design only)
+
+- Added `docs/git-storage-provider-contract.md` with provider comparison, required invariants, adapter boundary, proposed remote API, service-to-service auth model, ref compare-and-swap, idempotent operations, crash recovery, test matrix and rollout gates.
+- Decision recorded: prefer a dedicated Git storage service as the long-term target. A shared filesystem is acceptable only after provider-specific atomicity/locking tests. Generic object storage or a FUSE mount is not a safe Git filesystem by assumption; object storage is suitable for immutable bundles/backups.
+- Updated `README.md` and `docs/architecture.md` to link and summarize the contract.
+- This checkpoint is documentation/design only: no application code, provider, bucket, paid plan, secret, production config or deployment was changed.
+- Existing PR CI #274 passed on the preceding restore-utility checkpoint (109 backend tests, 7 website tests, frontend build and syntax checks). Current Vercel status contexts on that checkpoint report `build-rate-limit` failures; those are external deployment checks, not GitHub Actions CI failures. Re-check current checks before the next implementation.
+
 ## Next recommended engineering task
 
-Design a provider-neutral Git storage adapter or dedicated Git storage service that can replace Render's instance-local disk without weakening Git ref-update atomicity. Evaluate shared-volume semantics versus a remote bare-repository service/object storage; define repository identity, authorization handoff, ref compare-and-swap, bundle import/export and failure recovery contracts before implementing a provider. Add crash-injection, backup/restore and concurrent-ref-update integration tests. Do not enable multi-instance writes on separate local disks, add paid infrastructure or deploy a new service without Somil's explicit approval.
+Implement the provider-neutral adapter interface and a local filesystem adapter behind the existing Git service without changing route behavior. Add shared adapter contract tests for atomic expected-SHA ref updates, operation-ID idempotency, stale-generation rejection, bundle import/export and repository verification. Then add crash-injection tests around object persistence and ref publication. Do not implement or deploy the remote provider yet; do not enable production writes or multi-instance writes until a real provider passes the integration matrix. Do not add paid infrastructure without Somil's explicit approval.
 
 ## Working rules for the next chat
 

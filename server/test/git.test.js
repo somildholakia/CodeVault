@@ -1,4 +1,6 @@
 import test,{after} from "node:test";
+import {execFileSync} from "node:child_process";
+import {createHash} from "node:crypto";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -536,4 +538,74 @@ test("returns all commit dates since a cutoff without the latest-100 history cap
   ()=>git.listCommitDatesSince(id,"main","not-a-date"),
   error=>error.code==="INVALID_COMMIT_DATE"
  );
+});
+
+
+test("exports a verified Git bundle that restores branches, tags and full commit history", async () => {
+ const id = await makeRepo();
+ const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/backup","main");
+ const source = await git.commitFile(
+  id,"feature/backup","src/backup.js","export const backupReady = true;\\n",
+  "Add portable backup fixture",author
+ );
+ await git.createTag(id,"v1.0.0","feature/backup","CodeVault backup fixture",author);
+ await fs.writeFile(path.join(git.repositoryPath(id),"untracked.js"),"not part of committed history\\n");
+
+ const backup = await git.createRepositoryBundle(id);
+ const restoredPath = path.join(temp,"restored-"+id);
+ try {
+  assert.ok(backup.sizeBytes > 0);
+  assert.match(backup.sha256,/^[a-f0-9]{64}$/);
+  assert.ok(backup.refs.some(ref=>ref.ref==="refs/heads/main"));
+  assert.ok(backup.refs.some(ref=>ref.ref==="refs/heads/feature/backup"&&ref.sha===source.sha));
+  assert.ok(backup.refs.some(ref=>ref.ref==="refs/tags/v1.0.0"));
+
+  const bytes = await fs.readFile(backup.path);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"),backup.sha256);
+  execFileSync("git",["clone","--quiet",backup.path,restoredPath],{stdio:"pipe"});
+
+  const restoredBranches = execFileSync("git",[
+   "for-each-ref","--format=%(refname)","refs/heads"
+  ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
+  const restoredTags = execFileSync("git",[
+   "for-each-ref","--format=%(refname)","refs/tags"
+  ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
+  const restoredFiles = execFileSync("git",[
+   "ls-tree","-r","--name-only","refs/heads/feature/backup"
+  ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
+
+  assert.ok(restoredBranches.includes("refs/heads/main"));
+  assert.ok(restoredBranches.includes("refs/heads/feature/backup"));
+  assert.ok(restoredTags.includes("refs/tags/v1.0.0"));
+  assert.ok(restoredFiles.includes("src/backup.js"));
+  assert.ok(!restoredFiles.includes("untracked.js"));
+  assert.equal(
+   execFileSync("git",["rev-parse","refs/heads/feature/backup"],{cwd:restoredPath,encoding:"utf8"}).trim(),
+   source.sha
+  );
+ } finally {
+  await fs.rm(backup.directory,{recursive:true,force:true});
+  await fs.rm(restoredPath,{recursive:true,force:true});
+ }
+});
+
+test("removes temporary backup files when the bundle exceeds the configured limit", async () => {
+ const id = await makeRepo();
+ const previous = process.env.MAX_REPOSITORY_BACKUP_SIZE_MB;
+ process.env.MAX_REPOSITORY_BACKUP_SIZE_MB = "1";
+ try {
+  const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+  const randomText = Array.from({length:1_200_000},(_,index)=>String.fromCharCode(33+(index*73)%90)).join("");
+  await fs.writeFile(path.join(git.repositoryPath(id),"large.txt"),randomText);
+  execFileSync("git",["add","--all"],{cwd:git.repositoryPath(id),stdio:"pipe"});
+  execFileSync("git",["-c","user.name=Test User","-c","user.email=test@codevault.local","commit","-m","Add backup size fixture"],{cwd:git.repositoryPath(id),stdio:"pipe"});
+  await assert.rejects(
+   () => git.createRepositoryBundle(id),
+   error => error.code === "BACKUP_TOO_LARGE" && error.statusCode === 413
+  );
+ } finally {
+  if(previous===undefined)delete process.env.MAX_REPOSITORY_BACKUP_SIZE_MB;
+  else process.env.MAX_REPOSITORY_BACKUP_SIZE_MB=previous;
+ }
 });

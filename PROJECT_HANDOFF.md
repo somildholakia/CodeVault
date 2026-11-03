@@ -32,46 +32,9 @@ Checkpoint `8279b56` — verified bundle downloads plus a safe one-command local
 
 This is a manual portable recovery path only. It does not schedule backups or store them off-site automatically; the downloaded bundle must be stored securely outside the Render service.
 
-## Latest verified CI
 
-Both workflows passed against the implementation-equivalent checkpoint `c77086deaa14dc6da98ca41be575ef0e6dea3a4c`:
+Verification details are recorded in the latest verified CI section above.
 
-- Push CI #271: https://github.com/somildholakia/CodeVault/actions/runs/41574039634 — passed.
-- PR CI #272: https://github.com/somildholakia/CodeVault/actions/runs/41574046199 — passed.
-- Backend tests: 109 passed, 0 failed.
-- Product website tests: 7 passed, 0 failed.
-- Frontend production build: passed.
-- Backend JavaScript syntax validation: passed.
-- Git bundle restore-integrity, restore CLI and existing-target protection tests: passed.
-
-These results cover the latest application-code checkpoint `8279b56e53878d2f031c45b91462e97bb4e5e7a4`; documentation-only commits after that checkpoint do not change application behavior. Re-fetch Actions before treating later branch-head runs as current.
-
-## Latest completed change — local Git storage adapter increment
-
-Application-code checkpoint: `a5710c1ac8511eb9a02483ce641fb0a88103755f`.
-
-- Added `server/src/services/gitStorageAdapter.js`, a local filesystem implementation of the provider-facing Git storage boundary.
-- Uses native `git update-ref --stdin` transactions with expected-old-object checks for atomic ref create/update/delete.
-- Adds a monotonic observed repository generation backed by a SHA-256 digest of the sorted ref map. The next adapter generation read detects legacy direct-Git ref changes and advances the observed generation, so stale expected generations are rejected.
-- Uses operation IDs bound to request payload hashes. Replaying the same operation returns the committed result; reusing an ID with a different payload is rejected.
-- Stores durable operation journal/state in `.codevault-state/<repositoryId>` next to, but outside, `.git`; internal state is not exported in repository bundles.
-- On recovery, prepared operations are reconciled against the before/after ref values: all-after is finalized, all-before is marked aborted, and mixed state fails closed for operator reconciliation.
-- Bundle import verifies the bundle, imports objects first, validates object targets and then atomically publishes refs. Export produces a verified bundle with size/hash/ref metadata. Repository verification runs `git fsck --full --connectivity-only`.
-- Adapter subprocesses re-check the active MongoDB repository lease before and after execution. The adapter does not replace MongoDB coordination or make separate local disks safe for multi-instance deployment.
-- Integrated the adapter into `git.js` for repository path resolution, atomic branch creation/deletion and portable backup export. Import and verification adapter methods are exposed at the service layer; most commit/merge/revert/tag operations remain on the existing direct Git paths and are not yet fully migrated.
-- Added `server/test/gitStorageAdapter.test.js`: CAS, operation-ID idempotency, stale generation/fence rejection, independent adapter concurrency, interrupted-operation recovery, bundle import/export, ref-drift detection, service delegation, lease-loss guard and expected-SHA deletion tests.
-- Updated README and architecture docs. No remote provider was built, no production writes were enabled, and no Render/Vercel deployment or paid service was changed.
-
-## Latest verified CI
-
-Both GitHub Actions workflows passed against implementation-equivalent commit `ae4619274b0689fbec17b9cd64e33f90979420fb` (which includes application-code checkpoint `a5710c1`):
-
-- Push CI #319: https://github.com/somildholakia/CodeVault/actions/runs/41577215316 — passed.
-- PR CI #320: https://github.com/somildholakia/CodeVault/actions/runs/41577220736 — passed.
-- Backend tests: 120 passed, 0 failed.
-- Product website tests: 7 passed, 0 failed.
-- Frontend production build and backend JavaScript syntax validation: passed.
-- These are GitHub Actions results. Separate Vercel status contexts still report `build-rate-limit`; treat those as external deployment-check failures, not passing builds.
 
 ## Production storage topology — do not change without explicit approval
 

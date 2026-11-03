@@ -54,6 +54,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/services/repositoryCleanup.js` — repository-scoped dependent-record cleanup.
 - `server/src/services/repositoryLock.js` — MongoDB lease, heartbeat, fencing and ownership validation.
 - `server/src/services/git.js` — verified Git bundle snapshots for portable repository backup and restore.
+- `scripts/restore-git-bundle.js` — one-command local restore utility for verified bundles, with no-overwrite and failed-restore cleanup.
 - `scripts/restore-git-bundle.js` — local CLI that verifies a downloaded bundle and reconstructs all supported refs in a new bare repository.
 - `server/test/` — temporary Git repository, cross-worker lease contention/recovery/fencing, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, pull-request lifecycle, repository-cleanup and full-history activity tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
@@ -101,7 +102,7 @@ The checked-in Render blueprint currently uses the Free plan and sets `REPO_STOR
 
 ## Verification and limitations
 
-Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews, invalid path/ref rejection and Git bundle backup/clone-restore integrity, including branch/tag preservation and backup size limits. Pull-request review-policy tests check independent approvals and change-request blocking. Authentication cookie and request-origin policy tests cover production cross-site cookie attributes and cookie-authenticated mutation origins. GitHub Actions runs the frontend production build, backend syntax validation, backend tests and product website tests.
+Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews, invalid path/ref rejection and Git bundle backup/restore integrity, including branch/tag preservation, object-connectivity checks, existing-target protection and backup size limits. Pull-request review-policy tests check independent approvals and change-request blocking. Authentication cookie and request-origin policy tests cover production cross-site cookie attributes and cookie-authenticated mutation origins. GitHub Actions runs the frontend production build, backend syntax validation, backend tests and product website tests.
 
 The Git service uses one shared worktree per repository and MongoDB-backed leases with monotonically increasing fencing tokens. A lease is reclaimed only after expiry; heartbeats renew it, and each native Git command checks the current owner/fence before and after execution. This coordinates API workers only when they use the same MongoDB database and the same shared repository volume. Separate per-instance disks are not coordinated by MongoDB and must not be used for multi-instance Git writes. Before scale-out, verify shared-volume semantics and crash recovery, then complete backup/restore drills, quota enforcement and an independent security review.
 

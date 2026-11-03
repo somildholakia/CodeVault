@@ -256,13 +256,6 @@ export function createLocalGitStorageAdapter(options={}){
    await runGit(root,["check-ref-format",safeRef(change.ref)]);
    const current=await readRefUnlocked(root,change.ref);
    if(current!==change.expectedObjectId)throw new AppError(409,"STORAGE_REF_CONFLICT","A Git ref changed before the compare-and-swap could be applied.",{ref:change.ref,currentObjectId:current});
-   if(change.newObjectId!==null){
-    let type;
-    try{type=(await runGit(root,["cat-file","-t",change.newObjectId])).stdout.trim();}
-    catch{throw new AppError(422,"GIT_OBJECT_MISSING","The proposed ref target is not present in the repository.");}
-    if(!type)throw new AppError(422,"GIT_OBJECT_MISSING","The proposed ref target is not present in the repository.");
-    if(change.ref.startsWith("refs/heads/")&&type!=="commit")throw new AppError(422,"BRANCH_TARGET_NOT_COMMIT","A branch must point to a commit object.");
-   }
   }
 
   const prepared={
@@ -274,6 +267,16 @@ export function createLocalGitStorageAdapter(options={}){
 
   try{
    if(beforePublish)await beforePublish();
+   // Imports populate the object database here; validate every target before any ref is published.
+   for(const change of changes){
+    if(change.newObjectId!==null){
+     let type;
+     try{type=(await runGit(root,["cat-file","-t",change.newObjectId])).stdout.trim();}
+     catch{throw new AppError(422,"GIT_OBJECT_MISSING","The proposed ref target is not present in the repository.");}
+     if(!type)throw new AppError(422,"GIT_OBJECT_MISSING","The proposed ref target is not present in the repository.");
+     if(change.ref.startsWith("refs/heads/")&&type!=="commit")throw new AppError(422,"BRANCH_TARGET_NOT_COMMIT","A branch must point to a commit object.");
+    }
+   }
    const commands=["start"];
    for(const change of changes){
     if(change.expectedObjectId===null)commands.push("create "+change.ref+" "+change.newObjectId);
@@ -296,11 +299,11 @@ export function createLocalGitStorageAdapter(options={}){
    const allUnapplied=changes.every((change,index)=>actual[index]===change.expectedObjectId);
    if(allUnapplied){
     prepared.status="aborted";
-    prepared.errorCode=error?.code==="GIT_REF_TRANSACTION_FAILED"?"STORAGE_REF_CONFLICT":"STORAGE_OPERATION_FAILED";
-    prepared.errorMessage=prepared.errorCode==="STORAGE_REF_CONFLICT"?"The ref compare-and-swap did not match the current repository state.":"The storage operation failed before publishing refs.";
+    prepared.errorCode=error?.code==="GIT_REF_TRANSACTION_FAILED"?"STORAGE_REF_CONFLICT":(error?.code||"STORAGE_OPERATION_FAILED");
+    prepared.errorMessage=error?.message||"The storage operation failed before publishing refs.";
     prepared.completedAt=new Date().toISOString();
     await atomicWriteJson(recordFile,prepared);
-    throw new AppError(409,prepared.errorCode,prepared.errorMessage);
+    throw new AppError(error?.statusCode||409,prepared.errorCode,prepared.errorMessage);
    }
    throw new AppError(503,"STORAGE_RECOVERY_REQUIRED","Git refs changed during an interrupted operation. Writes are blocked pending operator reconciliation.");
   }

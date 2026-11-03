@@ -147,7 +147,7 @@ export function createLocalGitStorageAdapter(options={}){
 
  async function stateFor(id){
   const state=await readJson(statePath(id),{generation:0,fence:0});
-  if(!Number.isSafeInteger(state.generation)||state.generation<0||!Number.isSafeInteger(state.fence)||state.fence<0)throw new AppError(503,"GIT_STORAGE_STATE_INVALID","The Git storage generation state is invalid.");
+  if(!Number.isSafeInteger(state.generation)||state.generation<0||!Number.isSafeInteger(state.fence)||state.fence<0||(state.refsDigest!==undefined&&state.refsDigest!==null&&!/^[a-f0-9]{64}$/.test(state.refsDigest)))throw new AppError(503,"GIT_STORAGE_STATE_INVALID","The Git storage generation state is invalid.");
   return state;
  }
 
@@ -164,6 +164,28 @@ export function createLocalGitStorageAdapter(options={}){
    if(separator<1)return null;
    return {ref:row.slice(0,separator),objectId:row.slice(separator+1)};
   }).filter(Boolean);
+ }
+
+ async function refsDigestUnlocked(root){
+  const refs=await listRefValues(root);
+  refs.sort((left,right)=>left.ref.localeCompare(right.ref));
+  return createHash("sha256").update(JSON.stringify(refs)).digest("hex");
+ }
+
+ async function syncGenerationUnlocked(id,root){
+  const state=await stateFor(id);
+  const refsDigest=await refsDigestUnlocked(root);
+  if(!state.refsDigest){
+   const initialized={generation:state.generation,fence:state.fence,refsDigest};
+   await atomicWriteJson(statePath(id),initialized);
+   return initialized;
+  }
+  if(state.refsDigest!==refsDigest){
+   const changed={generation:state.generation+1,fence:state.fence,refsDigest};
+   await atomicWriteJson(statePath(id),changed);
+   return changed;
+  }
+  return state;
  }
 
  function journalResult(record){
@@ -190,7 +212,8 @@ export function createLocalGitStorageAdapter(options={}){
     const state=await stateFor(id);
     await atomicWriteJson(statePath(id),{
      generation:Math.max(state.generation,record.generationAfter),
-     fence:Math.max(state.fence,record.fencingToken||0)
+     fence:Math.max(state.fence,record.fencingToken||0),
+     refsDigest:await refsDigestUnlocked(root)
     });
     record.status="committed";
     record.result={operationId:record.operationId,generation:record.generationAfter,changes:record.changes,recovered:true};
@@ -225,7 +248,7 @@ export function createLocalGitStorageAdapter(options={}){
    if(previous.status==="committed")return previous.result;
    return journalResult(previous);
   }
-  const state=await stateFor(id);
+  const state=await syncGenerationUnlocked(id,root);
   if(state.generation!==expectedGeneration)throw new AppError(409,"STORAGE_GENERATION_CONFLICT","The repository changed since this operation was prepared.",{expectedGeneration,actualGeneration:state.generation});
   if(leaseFence<state.fence)throw new AppError(409,"STORAGE_FENCE_STALE","This worker's fencing token is older than the latest accepted Git storage writer.",{providedFence:leaseFence,latestFence:state.fence});
 
@@ -283,7 +306,7 @@ export function createLocalGitStorageAdapter(options={}){
   }
 
   const result={operationId:op,generation:state.generation+1,changes,recovered:false};
-  await atomicWriteJson(statePath(id),{generation:result.generation,fence:Math.max(state.fence,leaseFence)});
+  await atomicWriteJson(statePath(id),{generation:result.generation,fence:Math.max(state.fence,leaseFence),refsDigest:await refsDigestUnlocked(root)});
   prepared.status="committed";
   prepared.result=result;
   prepared.completedAt=new Date().toISOString();
@@ -301,8 +324,9 @@ export function createLocalGitStorageAdapter(options={}){
   repositoryPath,
   async getGeneration({repositoryId:id}){
    return scoped(id,async()=>{
-    await recoverPendingUnlocked(id,repositoryPath(id));
-    return (await stateFor(id)).generation;
+    const root=repositoryPath(id);
+    await recoverPendingUnlocked(id,root);
+    return (await syncGenerationUnlocked(id,root)).generation;
    });
   },
   async readRef({repositoryId:id,ref}){
@@ -391,7 +415,7 @@ export function createLocalGitStorageAdapter(options={}){
     await recoverPendingUnlocked(id,root);
     const refs=await listRefValues(root);
     const report=await runGit(root,["fsck","--full","--connectivity-only","--no-reflogs"]);
-    const generation=(await stateFor(id)).generation;
+    const generation=(await syncGenerationUnlocked(id,root)).generation;
     return {ok:true,generation,refs,checkedRefs:refs.length,fsckOutput:report.stdout.trim()};
    });
   }

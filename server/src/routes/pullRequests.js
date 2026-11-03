@@ -8,6 +8,7 @@ import Activity from "../models/Activity.js";
 import BranchProtection from "../models/BranchProtection.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
+import {requireDurableRepositoryStorage} from "../utils/repositoryStorage.js";
 import {listBranches,previewMerge,mergeBranches,withRepositoryLock,diffBranches,isAddedDiffLine,inspectPullRequestMerge} from "../services/git.js";
 import {evaluateReviewGate,selectBranchProtection} from "../services/pullRequestPolicy.js";
 import {nextSequence} from "../services/sequences.js";
@@ -160,6 +161,7 @@ router.post("/:id/reconcile-merge",asyncHandler(async(req,res)=>{
 }));
 
 router.post("/:id/merge",asyncHandler(async(req,res)=>{
+ requireDurableRepositoryStorage();
  const initial=await loadPullRequest(req.params.id);
  assertManage(await roleFor(initial.repository,req.user._id));
  assertPullRequestOpen(initial,"merged");

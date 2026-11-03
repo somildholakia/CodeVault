@@ -615,7 +615,7 @@ export function isAddedDiffLine(diff, filePath, lineNumber) {
 }
 
 
-export async function deleteBranch(id, name, defaultBranch, expectedHead) {
+export async function deleteBranch(id, name, defaultBranch, expectedHead, options = {}) {
   const branch = safeRef(name);
   const protectedDefault = safeRef(defaultBranch);
   if (branch === protectedDefault) throw new AppError(409, "DEFAULT_BRANCH_PROTECTED", "The repository default branch cannot be deleted.");
@@ -625,15 +625,32 @@ export async function deleteBranch(id, name, defaultBranch, expectedHead) {
   const root = repositoryPath(id);
   const current = (await git(root, ["rev-parse", "--verify", "refs/heads/" + branch])).stdout.trim();
   if (current !== expectedHead) throw new AppError(409, "BRANCH_MOVED", "The branch changed since it was loaded. Refresh and try again.");
-  // Move the repository worktree to its protected branch before deletion.
+
+  // Match the old safe "git branch -d" behavior before the atomic ref deletion.
+  const merged = (await git(root, [
+    "branch", "--merged", protectedDefault, "--format=%(refname)"
+  ])).stdout.split(/\r?\n/).filter(Boolean);
+  if (!merged.includes("refs/heads/" + branch)) {
+    throw new AppError(409, "BRANCH_NOT_MERGED", "This branch contains commits that are not merged into the default branch.");
+  }
+
+  // Move the shared worktree away before deleting the checked-out branch.
   await git(root, ["checkout", "--quiet", protectedDefault]);
-  // -d is deliberately used rather than -D: Git refuses to remove unmerged work.
+  const lease = await assertRepositoryLease(id);
+  const expectedGeneration = await gitStorageAdapter.getGeneration({repositoryId:String(id)});
   try {
-    await git(root, ["branch", "-d", "--", branch]);
+    await gitStorageAdapter.compareAndSwapRef({
+      repositoryId:String(id),
+      ref:"refs/heads/" + branch,
+      expectedObjectId:current,
+      newObjectId:null,
+      expectedGeneration,
+      operationId:options.operationId || randomUUID(),
+      fencingToken:lease?.fence || 0
+    });
   } catch (error) {
-    const message = String(error.message || "").toLowerCase();
-    if (message.includes("not fully merged")) {
-      throw new AppError(409, "BRANCH_NOT_MERGED", "This branch contains commits that are not merged into the default branch.");
+    if (["STORAGE_REF_CONFLICT","STORAGE_GENERATION_CONFLICT"].includes(error.code)) {
+      throw new AppError(409, "BRANCH_MOVED", "The branch changed while deletion was being finalized. Refresh and try again.");
     }
     throw error;
   }

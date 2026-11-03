@@ -12,6 +12,7 @@ import activityRoutes from "./routes/activity.js";
 import pullRequestRoutes from "./routes/pullRequests.js";
 import {sessionCookieName} from "./middleware/auth.js";
 import {hasBearerAuthorization,validateUnsafeRequestOrigin} from "./utils/requestSecurity.js";
+import {isDurableRepositoryStorageConfigured} from "./utils/repositoryStorage.js";
 
 const app = express();
 const configuredOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
@@ -85,9 +86,7 @@ app.get("/api/health", (_req, res) => res.status(200).json({
   status: "ok",
   service: "codevault-api",
   database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-  repositoryStorage: process.env.NODE_ENV !== "production" || process.env.REPO_STORAGE_DURABLE === "true"
-    ? "configured"
-    : "needs-persistent-disk",
+  repositoryStorage: isDurableRepositoryStorageConfigured() ? "configured" : "needs-persistent-disk",
   timestamp: new Date().toISOString()
 }));
 

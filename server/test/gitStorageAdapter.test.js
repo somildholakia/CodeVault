@@ -267,3 +267,23 @@ test("existing Git service delegates repository paths, branch publishing, backup
   await fs.rm(backup.directory,{recursive:true,force:true});
  }
 });
+
+
+test("detects refs changed by legacy Git writers and advances the observed generation",async()=>{
+ const storage=path.join(temp,"legacy-writer-storage");
+ const root=path.join(storage,id);
+ const initial=await makeWorkingRepository(root);
+ const gitStorage=adapter(storage);
+ assert.equal(await gitStorage.getGeneration({repositoryId:id}),0);
+ git(root,["branch","feature/legacy-writer",initial]);
+ assert.equal(await gitStorage.getGeneration({repositoryId:id}),1);
+ const next=nextCommit(root,initial,"Adapter after legacy writer");
+ await assert.rejects(
+  ()=>gitStorage.compareAndSwapRef({
+   repositoryId:id,ref:"refs/heads/main",expectedObjectId:initial,newObjectId:next,
+   expectedGeneration:0,operationId:"adapter-stale-observed",fencingToken:1
+  }),
+  error=>error.code==="STORAGE_GENERATION_CONFLICT"
+ );
+ assert.equal((await gitStorage.readRef({repositoryId:id,ref:"refs/heads/main"})),initial);
+});

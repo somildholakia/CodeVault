@@ -10,6 +10,10 @@ import {createLocalGitStorageAdapter} from "../src/services/gitStorageAdapter.js
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),"codevault-storage-adapter-"));
 after(async()=>fs.rm(temp,{recursive:true,force:true}));
 
+const serviceStorage=path.join(temp,"service-integration-storage");
+process.env.REPO_STORAGE_PATH=serviceStorage;
+const gitService=await import("../src/services/git.js");
+
 function git(cwd,args,extraEnv={}){
  return execFileSync("git",args,{
   cwd,encoding:"utf8",stdio:["ignore","pipe","pipe"],
@@ -238,4 +242,28 @@ test("rejects missing objects, invalid refs and a malformed repository identifie
   error=>error.code==="INVALID_REPOSITORY_ID"
  );
  assert.equal((await gitStorage.readRef({repositoryId:id,ref:"refs/heads/main"})),initial);
+});
+
+
+test("existing Git service delegates repository paths, branch publishing, backups and verification to the local adapter",async()=>{
+ const repositoryId="b".repeat(24);
+ await gitService.initRepository(
+  {_id:repositoryId,name:"adapter-integration",description:"Storage adapter integration fixture"},
+  {addReadme:true,authorName:"Adapter Integration",authorEmail:"adapter-integration@codevault.local"}
+ );
+ assert.equal(gitService.repositoryPath(repositoryId),path.join(serviceStorage,repositoryId));
+ await gitService.createBranch(repositoryId,"feature/adapter-integration","main");
+ assert.equal(await gitService.gitStorageAdapter.getGeneration({repositoryId}),1);
+ const branches=await gitService.listBranches(repositoryId);
+ assert.ok(branches.some(item=>item.name==="feature/adapter-integration"));
+ const backup=await gitService.createRepositoryBundle(repositoryId);
+ try{
+  assert.ok(backup.refs.some(item=>item.ref==="refs/heads/main"));
+  assert.ok(backup.refs.some(item=>item.ref==="refs/heads/feature/adapter-integration"));
+  const verification=await gitService.verifyGitRepository(repositoryId);
+  assert.equal(verification.ok,true);
+  assert.equal(verification.checkedRefs,2);
+ }finally{
+  await fs.rm(backup.directory,{recursive:true,force:true});
+ }
 });

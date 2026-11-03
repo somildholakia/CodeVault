@@ -55,13 +55,11 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/services/sequences.js` — atomic issue and pull-request numbering.
 - `server/src/services/repositoryCleanup.js` — repository-scoped dependent-record cleanup.
 - `server/src/services/repositoryLock.js` — MongoDB lease, heartbeat, fencing and ownership validation.
-- `server/src/services/git.js` — verified Git bundle snapshots for portable repository backup and restore.
 - `scripts/restore-git-bundle.js` — one-command local restore utility for verified bundles, with no-overwrite and failed-restore cleanup.
-- `scripts/restore-git-bundle.js` — local CLI that verifies a downloaded bundle and reconstructs all supported refs in a new bare repository.
 - `server/test/` — temporary Git repository, local storage-adapter CAS/idempotency/recovery/bundle tests, cross-worker lease contention/recovery/fencing, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, pull-request lifecycle, repository-cleanup and full-history activity tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
-The current local adapter is an incremental filesystem implementation, not a remote storage service. It is used for repository path resolution, branch creation and verified bundle export/import/integrity operations; other existing Git write paths are still being migrated. It relies on the existing MongoDB repository lease for API-worker serialization and does not make independent local disks safe for multi-instance deployment.
+The current local adapter is an incremental filesystem implementation, not a remote storage service. It is used for repository path resolution, atomic branch creation/deletion, and verified bundle export/import/integrity operations; other existing Git write paths are still being migrated. It re-checks the active MongoDB repository lease before and after each adapter Git subprocess. It does not make independent local disks safe for multi-instance deployment.
 
 Remote automated backup retention, a provider-backed Git storage service and external notifications remain future work. The provider-neutral storage invariants, remote protocol, crash-recovery contract and rollout gates are specified in [docs/git-storage-provider-contract.md](./docs/git-storage-provider-contract.md). The current Git bundle download is portable and can be restored locally with the CLI below, but it does not create an off-site backup automatically. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
 

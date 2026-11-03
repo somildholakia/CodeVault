@@ -87,3 +87,8 @@ The current Git service uses a shared worktree and an in-process repository lock
 ### Dependency security scanning
 
 CodeVault can scan exact resolved versions from npm lockfiles and exact pinned Python requirements (`package==version`) against OSV. Unpinned ranges, environment-marker requirements, editable installs and VCS references are not treated as exact resolved versions. A missing lockfile or unsupported manifest is reported explicitly rather than described as vulnerability-free.
+
+
+## Continuing development
+
+For the current branch checkpoint, latest verified CI, next recommended task and continuation instructions, see [PROJECT_HANDOFF.md](./PROJECT_HANDOFF.md). Update this handoff at every meaningful checkpoint so work can resume in another chat.

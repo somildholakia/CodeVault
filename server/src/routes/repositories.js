@@ -12,6 +12,7 @@ import Release from "../models/Release.js";
 import BranchProtection from "../models/BranchProtection.js";
 import {requireAuth} from "../middleware/auth.js";
 import {AppError,asyncHandler,notFound} from "../utils/errors.js";
+import {requireDurableRepositoryStorage} from "../utils/repositoryStorage.js";
 import {selectBranchProtection} from "../services/pullRequestPolicy.js";
 import {scanDependencies} from "../services/dependencyScanner.js";
 import {nextSequence} from "../services/sequences.js";
@@ -28,12 +29,11 @@ const canManage=role=>["owner","maintainer"].includes(role);
 function assertRead(role,repo){if(!canRead(role,repo))throw notFound("Repository not found.");}
 function assertWrite(role){if(!canWrite(role))throw new AppError(403,"PERMISSION_DENIED","You do not have write access to this repository.");}
 function assertManage(role){if(!canManage(role))throw new AppError(403,"PERMISSION_DENIED","Only the owner or a maintainer can manage this operation.");}
-function requireDurableStorage(){if(process.env.NODE_ENV==="production"&&process.env.REPO_STORAGE_DURABLE!=="true")throw new AppError(503,"PERSISTENT_STORAGE_NOT_CONFIGURED","Repository writes are disabled until durable storage is configured.");}
 async function protectionForBranch(repo,branch){const rules=await BranchProtection.find({repository:repo._id}).lean();return selectBranchProtection(rules,branch);}
 async function event(uid,repo,action,type,name,summary,id=""){await Activity.create({actor:uid,repository:repo?._id||null,action,entityType:type,entityName:name,entityId:String(id),summary});if(repo){repo.lastActivityAt=new Date();await repo.save();}}
 router.get("/",asyncHandler(async(req,res)=>{const limit=Math.min(100,Math.max(1,Number(req.query.limit)||100));const ms=await Collaborator.find({user:req.user._id,acceptedAt:{$ne:null}}).select("repository");const repositories=await Repository.find({$or:[{owner:req.user._id},{visibility:"public"},{_id:{$in:ms.map(m=>m.repository)}}]}).sort({updatedAt:-1}).limit(limit).populate("owner","username displayName avatarUrl");res.json({repositories});}));
 router.post("/",asyncHandler(async(req,res)=>{
- requireDurableStorage();
+ requireDurableRepositoryStorage();
  const p=z.object({name:z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/),description:z.string().trim().max(350).optional().default(""),visibility:z.enum(["public","private"]).default("private"),addReadme:z.boolean().default(true),gitignore:z.enum(["Node","Python","Java","VisualStudioCode","None"]).default("Node"),license:z.enum(["MIT","None"]).default("MIT")}).safeParse(req.body);
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Repository details are invalid.",p.error.flatten());
  const slug=p.data.name.toLowerCase();if(await Repository.exists({owner:req.user._id,slug}))throw new AppError(409,"REPOSITORY_EXISTS","You already have a repository with that name.");
@@ -66,7 +66,7 @@ router.get("/:id/releases",asyncHandler(async(req,res)=>{
  res.json({releases,tags});
 }));
 router.post("/:id/releases",asyncHandler(async(req,res)=>{
- requireDurableStorage();
+ requireDurableRepositoryStorage();
  const repo=await getRepo(req.params.id);
  assertManage(await roleFor(repo,req.user._id));
  const p=z.object({
@@ -131,7 +131,7 @@ router.get("/:id/branch-protection",asyncHandler(async(req,res)=>{
  res.json({rules,matched:branch?selectBranchProtection(rules,branch):null});
 }));
 router.put("/:id/branch-protection",asyncHandler(async(req,res)=>{
- requireDurableStorage();
+ requireDurableRepositoryStorage();
  const repo=await getRepo(req.params.id);
  assertManage(await roleFor(repo,req.user._id));
  const p=z.object({
@@ -148,7 +148,7 @@ router.put("/:id/branch-protection",asyncHandler(async(req,res)=>{
  res.json({rule});
 }));
 router.delete("/:id/branch-protection",asyncHandler(async(req,res)=>{
- requireDurableStorage();
+ requireDurableRepositoryStorage();
  const repo=await getRepo(req.params.id);
  assertManage(await roleFor(repo,req.user._id));
  const p=z.object({pattern:z.string().trim().min(1).max(120)}).strict().safeParse(req.body);
@@ -177,7 +177,7 @@ router.get("/:id/files/blame",asyncHandler(async(req,res)=>{
 }));
 router.get("/:id/commits",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({commits:await listCommits(repo._id,String(req.query.ref||repo.defaultBranch),Number(req.query.limit)||50)});}));
 router.post("/:id/revert",asyncHandler(async(req,res)=>{
- requireDurableStorage();
+ requireDurableRepositoryStorage();
  const repo=await getRepo(req.params.id);
  const role=await roleFor(repo,req.user._id);
  assertWrite(role);
@@ -194,9 +194,9 @@ router.post("/:id/revert",asyncHandler(async(req,res)=>{
 }));
 router.get("/:id/commits/:sha/diff",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({diff:await diffCommit(repo._id,req.params.sha)});}));
 router.get("/:id/branches",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({branches:await listBranches(repo._id)});}));
-router.post("/:id/branches",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({name:z.string().trim().min(1).max(120),base:z.string().trim().min(1).max(160).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a valid branch and base ref.");const branch=await withRepositoryLock(repo._id,()=>createBranch(repo._id,p.data.name,p.data.base||repo.defaultBranch));await event(req.user._id,repo,"branch.created","branch",branch.name,"Created branch "+branch.name+".",branch.name);res.status(201).json({branch});}));
+router.post("/:id/branches",asyncHandler(async(req,res)=>{requireDurableRepositoryStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({name:z.string().trim().min(1).max(120),base:z.string().trim().min(1).max(160).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a valid branch and base ref.");const branch=await withRepositoryLock(repo._id,()=>createBranch(repo._id,p.data.name,p.data.base||repo.defaultBranch));await event(req.user._id,repo,"branch.created","branch",branch.name,"Created branch "+branch.name+".",branch.name);res.status(201).json({branch});}));
 router.delete("/:id/branches",asyncHandler(async(req,res)=>{
- requireDurableStorage();
+ requireDurableRepositoryStorage();
  const repo=await getRepo(req.params.id);
  assertWrite(await roleFor(repo,req.user._id));
  const p=z.object({name:z.string().trim().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i)}).strict().safeParse(req.body);
@@ -208,10 +208,10 @@ router.delete("/:id/branches",asyncHandler(async(req,res)=>{
  res.json({deleted:true,branch:result.name,deletedHead:result.deletedHead});
 }));
 router.post("/:id/merge-preview",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose source and target branches.");res.json(await previewMerge(repo._id,p.data.source,p.data.target));}));
-router.post("/:id/merge",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose valid source and target branches.");const protection=await protectionForBranch(repo,p.data.target);if(protection?.requirePullRequest)throw new AppError(409,"PULL_REQUEST_REQUIRED","This target branch accepts merges only through an approved pull request.",{pattern:protection.pattern});
+router.post("/:id/merge",asyncHandler(async(req,res)=>{requireDurableRepositoryStorage();const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose valid source and target branches.");const protection=await protectionForBranch(repo,p.data.target);if(protection?.requirePullRequest)throw new AppError(409,"PULL_REQUEST_REQUIRED","This target branch accepts merges only through an approved pull request.",{pattern:protection.pattern});
  const result=await withRepositoryLock(repo._id,()=>mergeBranches(repo._id,p.data.source,p.data.target,p.data.expectedHead));await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Merged "+p.data.source+" into "+p.data.target+".",p.data.source);res.json({merged:true,result});}));
 router.post("/:id/merge-resolve",asyncHandler(async(req,res)=>{
- requireDurableStorage();
+ requireDurableRepositoryStorage();
  const repo=await getRepo(req.params.id);
  assertManage(await roleFor(repo,req.user._id));
  const p=z.object({
@@ -231,7 +231,7 @@ router.post("/:id/merge-resolve",asyncHandler(async(req,res)=>{
  await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Resolved merge conflicts and merged "+p.data.source+" into "+p.data.target+".",result.mergeCommit);
  res.status(201).json({merged:true,result});
 }));
-router.post("/:id/commits",asyncHandler(async(req,res)=>{requireDurableStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({branch:z.string().min(1).max(160),path:z.string().min(1).max(500),content:z.string().max(1048576),message:z.string().trim().min(3).max(180)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Branch, path, content or commit message is invalid.");const protection=await protectionForBranch(repo,p.data.branch);if(protection?.requirePullRequest)throw new AppError(409,"DIRECT_PUSH_BLOCKED","This branch requires changes to be merged through an approved pull request.",{pattern:protection.pattern});
+router.post("/:id/commits",asyncHandler(async(req,res)=>{requireDurableRepositoryStorage();const repo=await getRepo(req.params.id);assertWrite(await roleFor(repo,req.user._id));const p=z.object({branch:z.string().min(1).max(160),path:z.string().min(1).max(500),content:z.string().max(1048576),message:z.string().trim().min(3).max(180)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Branch, path, content or commit message is invalid.");const protection=await protectionForBranch(repo,p.data.branch);if(protection?.requirePullRequest)throw new AppError(409,"DIRECT_PUSH_BLOCKED","This branch requires changes to be merged through an approved pull request.",{pattern:protection.pattern});
  const commit=await withRepositoryLock(repo._id,()=>commitFile(repo._id,p.data.branch,p.data.path,p.data.content,p.data.message,req.user));await event(req.user._id,repo,"commit.created","repository",repo.name,"Committed "+p.data.path+" to "+p.data.branch+".",commit.sha);res.status(201).json({commit});}));
 router.get("/:id/issues",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const filter={repository:repo._id};if(["open","closed"].includes(req.query.status))filter.status=req.query.status;const issues=await Issue.find(filter).sort({number:-1}).limit(Math.min(100,Number(req.query.limit)||100)).populate("author","username displayName avatarUrl").populate("assignee","username displayName avatarUrl");res.json({issues});}));
 router.post("/:id/issues",asyncHandler(async(req,res)=>{
@@ -250,7 +250,7 @@ router.post("/:id/issues",asyncHandler(async(req,res)=>{
 router.post("/:id/collaborators",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({username:z.string().trim().min(3).max(30).regex(/^[A-Za-z0-9_-]+$/),role:z.enum(["maintainer","developer","viewer"]).default("developer")}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Provide a valid username and role.");const person=await User.findOne({username:p.data.username.toLowerCase()}).select("_id username displayName avatarUrl");if(!person)throw new AppError(404,"USER_NOT_FOUND","No CodeVault account has that username.");if(person._id.toString()===repo.owner._id.toString())throw new AppError(400,"OWNER_IS_NOT_COLLABORATOR","The owner already has full access.");try{const collaborator=await Collaborator.create({repository:repo._id,user:person._id,role:p.data.role,invitedBy:req.user._id,acceptedAt:new Date()});await event(req.user._id,repo,"collaborator.added","collaborator",person.username,"Added @"+person.username+" as "+p.data.role+".",person._id);res.status(201).json({collaborator:{...collaborator.toObject(),user:person}});}catch(e){if(e.code===11000)throw new AppError(409,"COLLABORATOR_EXISTS","That user already has access.");throw e;}}));
 router.get("/:id/collaborators",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const collaborators=await Collaborator.find({repository:repo._id,acceptedAt:{$ne:null}}).populate("user","username displayName avatarUrl").populate("invitedBy","username displayName");res.json({collaborators,owner:repo.owner});}));
 router.delete("/:id",asyncHandler(async(req,res)=>{
- requireDurableStorage();
+ requireDurableRepositoryStorage();
  const repo=await getRepo(req.params.id);
  if(await roleFor(repo,req.user._id)!=="owner")throw new AppError(403,"PERMISSION_DENIED","Only the owner can delete a repository.");
  const p=z.object({confirmation:z.string()}).strict().safeParse(req.body);

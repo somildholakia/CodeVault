@@ -422,6 +422,102 @@ test("merges the exact reviewed source SHA rather than resolving a changed ref a
 });
 
 
+
+test("reconciles a merge completed before database finalization", async () => {
+ const id = await makeRepo();
+ const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/recovery-completed","main");
+ const source = await git.commitFile(
+  id,"feature/recovery-completed","recovered.js","export const recovered = true;\n",
+  "Add recoverable feature",author
+ );
+ const targetSha = (await git.listBranches(id)).find(branch => branch.name === "main").sha;
+ await git.mergeBranches(id,"feature/recovery-completed","main",targetSha,source.sha);
+ const inspection = await git.inspectPullRequestMerge(id,{
+  sourceBranch:"feature/recovery-completed",
+  targetBranch:"main",
+  sourceSha:source.sha,
+  targetSha
+ });
+ assert.equal(inspection.state,"completed");
+ assert.equal(inspection.mergeCommit,(await git.listCommits(id,"main",1))[0].sha);
+});
+
+test("proves a merge did not occur when both pinned refs are unchanged", async () => {
+ const id = await makeRepo();
+ const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/recovery-pending","main");
+ const source = await git.commitFile(
+  id,"feature/recovery-pending","pending.js","export const pending = true;\n",
+  "Add pending feature",author
+ );
+ const targetSha = (await git.listBranches(id)).find(branch => branch.name === "main").sha;
+ const inspection = await git.inspectPullRequestMerge(id,{
+  sourceBranch:"feature/recovery-pending",
+  targetBranch:"main",
+  sourceSha:source.sha,
+  targetSha
+ });
+ assert.equal(inspection.state,"not_completed");
+});
+
+test("recognizes a source already contained in the target as a completed no-op", async () => {
+ const id = await makeRepo();
+ const targetSha = (await git.listBranches(id)).find(branch => branch.name === "main").sha;
+ await git.createBranch(id,"feature/recovery-noop",targetSha);
+ const inspection = await git.inspectPullRequestMerge(id,{
+  sourceBranch:"feature/recovery-noop",
+  targetBranch:"main",
+  sourceSha:targetSha,
+  targetSha
+ });
+ assert.equal(inspection.state,"completed");
+ assert.equal(inspection.noOp,true);
+ assert.equal(inspection.mergeCommit,targetSha);
+});
+
+test("preserves an ambiguous claim when the target moves without containing the source", async () => {
+ const id = await makeRepo();
+ const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/recovery-ambiguous","main");
+ const source = await git.commitFile(
+  id,"feature/recovery-ambiguous","ambiguous.js","export const ambiguous = true;\n",
+  "Add ambiguous feature",author
+ );
+ const targetSha = (await git.listBranches(id)).find(branch => branch.name === "main").sha;
+ await git.commitFile(
+  id,"main","unrelated.js","export const unrelated = true;\n",
+  "Advance target independently",author
+ );
+ const inspection = await git.inspectPullRequestMerge(id,{
+  sourceBranch:"feature/recovery-ambiguous",
+  targetBranch:"main",
+  sourceSha:source.sha,
+  targetSha
+ });
+ assert.equal(inspection.state,"ambiguous");
+});
+
+test("preserves an ambiguous claim when a recorded source ref is unavailable", async () => {
+ const id = await makeRepo();
+ const author = {username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/recovery-missing","main");
+ const source = await git.commitFile(
+  id,"feature/recovery-missing","missing-ref.js","export const missingRef = true;\n",
+  "Add source before ref cleanup",author
+ );
+ const targetSha = (await git.listBranches(id)).find(branch => branch.name === "main").sha;
+ await git.mergeBranches(id,"feature/recovery-missing","main",targetSha,source.sha);
+ await git.deleteBranch(id,"feature/recovery-missing","main",source.sha);
+ const inspection = await git.inspectPullRequestMerge(id,{
+  sourceBranch:"feature/recovery-missing",
+  targetBranch:"main",
+  sourceSha:source.sha,
+  targetSha
+ });
+ assert.equal(inspection.state,"ambiguous");
+});
+
 test("returns all commit dates since a cutoff without the latest-100 history cap", async () => {
  const id=await makeRepo();
  const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};

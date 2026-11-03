@@ -575,12 +575,12 @@ test("exports a verified Git bundle that restores branches, tags and full commit
 
   const restoredRefs = execFileSync("git",[
    "for-each-ref","--format=%(refname)"
-  ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
+  ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\r?\n/);
   const restoredBranches = restoredRefs.filter(ref=>ref.startsWith("refs/heads/"));
   const restoredTags = restoredRefs.filter(ref=>ref.startsWith("refs/tags/"));
   const restoredFiles = execFileSync("git",[
    "ls-tree","-r","--name-only","refs/heads/feature/backup"
-  ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
+  ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\r?\n/);
 
   assert.ok(restoredBranches.includes("refs/heads/main"),"Restored refs: "+JSON.stringify(restoredRefs)+"; bundle refs: "+JSON.stringify(backup.refs));
   assert.ok(restoredBranches.includes("refs/heads/feature/backup"));

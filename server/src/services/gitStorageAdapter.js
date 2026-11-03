@@ -158,9 +158,9 @@ export function createLocalGitStorageAdapter(options={}){
  }
 
  async function listRefValues(root){
-  const result=await runGit(root,["for-each-ref","--format=%(refname)%00%(objectname)"]);
+  const result=await runGit(root,["for-each-ref","--format=%(refname) %(objectname)"]);
   return result.stdout.split(/\r?\n/).filter(Boolean).map(row=>{
-   const separator=row.indexOf("\0");
+   const separator=row.lastIndexOf(" ");
    if(separator<1)return null;
    return {ref:row.slice(0,separator),objectId:row.slice(separator+1)};
   }).filter(Boolean);
@@ -230,10 +230,13 @@ export function createLocalGitStorageAdapter(options={}){
   if(leaseFence<state.fence)throw new AppError(409,"STORAGE_FENCE_STALE","This worker's fencing token is older than the latest accepted Git storage writer.",{providedFence:leaseFence,latestFence:state.fence});
 
   for(const change of changes){
+   await runGit(root,["check-ref-format",safeRef(change.ref)]);
    const current=await readRefUnlocked(root,change.ref);
    if(current!==change.expectedObjectId)throw new AppError(409,"STORAGE_REF_CONFLICT","A Git ref changed before the compare-and-swap could be applied.",{ref:change.ref,currentObjectId:current});
    if(change.newObjectId!==null){
-    const type=(await runGit(root,["cat-file","-t",change.newObjectId])).stdout.trim();
+    let type;
+    try{type=(await runGit(root,["cat-file","-t",change.newObjectId])).stdout.trim();}
+    catch{throw new AppError(422,"GIT_OBJECT_MISSING","The proposed ref target is not present in the repository.");}
     if(!type)throw new AppError(422,"GIT_OBJECT_MISSING","The proposed ref target is not present in the repository.");
     if(change.ref.startsWith("refs/heads/")&&type!=="commit")throw new AppError(422,"BRANCH_TARGET_NOT_COMMIT","A branch must point to a commit object.");
    }
@@ -373,6 +376,8 @@ export function createLocalGitStorageAdapter(options={}){
     }).then(async result=>{
      if(input.defaultBranch){
       const branch=String(input.defaultBranch);
+      await runGit(root,["check-ref-format","--branch",branch]);
+      if(!refs.some(item=>item.ref==="refs/heads/"+branch))throw new AppError(400,"DEFAULT_BRANCH_NOT_IMPORTED","The requested default branch is not included in the bundle.");
       await runGit(root,["symbolic-ref","HEAD","refs/heads/"+branch]);
      }
      return {...result,bundleSha256,refCount:refs.length};

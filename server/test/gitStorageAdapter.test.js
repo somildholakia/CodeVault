@@ -287,3 +287,51 @@ test("detects refs changed by legacy Git writers and advances the observed gener
  );
  assert.equal((await gitStorage.readRef({repositoryId:id,ref:"refs/heads/main"})),initial);
 });
+
+
+test("rechecks the active MongoDB lease before each adapter Git command",async()=>{
+ const storage=path.join(temp,"lost-lease-storage");
+ const root=path.join(storage,id);
+ await makeWorkingRepository(root);
+ let assertions=0;
+ const lostLease=async(_repositoryId,callback)=>callback({
+  fence:12,
+  assertOwned:async()=>{
+   assertions++;
+   if(assertions>=2){
+    const error=new Error("Repository lease was lost.");
+    error.code="REPOSITORY_LOCK_LOST";
+    throw error;
+   }
+  }
+ });
+ const gitStorage=adapter(storage,lostLease);
+ await assert.rejects(
+  ()=>gitStorage.readRef({repositoryId:id,ref:"refs/heads/main"}),
+  error=>error.code==="REPOSITORY_LOCK_LOST"
+ );
+ assert.equal(assertions,2);
+});
+
+test("deletes a ref only when its expected object ID matches",async()=>{
+ const storage=path.join(temp,"delete-ref-storage");
+ const root=path.join(storage,id);
+ const initial=await makeWorkingRepository(root);
+ const next=nextCommit(root,initial,"Move branch before safe deletion");
+ git(root,["update-ref","refs/heads/feature/delete-me",next]);
+ const gitStorage=adapter(storage);
+ await assert.rejects(
+  ()=>gitStorage.compareAndSwapRef({
+   repositoryId:id,ref:"refs/heads/feature/delete-me",expectedObjectId:initial,newObjectId:null,
+   expectedGeneration:0,operationId:"adapter-delete-stale",fencingToken:1
+  }),
+  error=>error.code==="STORAGE_REF_CONFLICT"||error.code==="STORAGE_GENERATION_CONFLICT"
+ );
+ const generation=await gitStorage.getGeneration({repositoryId:id});
+ const deleted=await gitStorage.compareAndSwapRef({
+  repositoryId:id,ref:"refs/heads/feature/delete-me",expectedObjectId:next,newObjectId:null,
+  expectedGeneration:generation,operationId:"adapter-delete-correct",fencingToken:1
+ });
+ assert.equal(deleted.generation,generation+1);
+ assert.equal(await gitStorage.readRef({repositoryId:id,ref:"refs/heads/feature/delete-me"}),null);
+});

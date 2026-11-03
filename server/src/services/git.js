@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
-import {createHash,randomUUID} from "node:crypto";
-import {createReadStream} from "node:fs";
+import {randomUUID} from "node:crypto";
+
 import {promisify} from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";

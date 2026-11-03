@@ -10,31 +10,31 @@ Last verified: 2026-11-03 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Last verified branch head before this handoff commit: `68a6a3bb3a0e4ceaf1849e175ba580a8291a8966`
+- Recovery implementation and documentation checkpoint before this handoff update: `e8e6d21b92645d51e07a31715172c64b1fc8ada4`
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change
 
-Commit `68a6a3b` — dedicated sign-in and registration rate limits.
+Checkpoint e8e6d21 — conservative pull-request merge crash recovery.
 
-- Login: 10 attempts per 15 minutes per IP.
-- Registration: 5 attempts per 15 minutes per IP.
-- Separate counters and consistent `AUTH_RATE_LIMITED` JSON errors.
-- HTTP integration tests cover the limit boundaries.
-- Files changed: `server/src/app.js`, `server/test/appSecurity.test.js`, `README.md`.
+- Merge claims now persist the reviewed source SHA, target SHA, start time and initiating user.
+- Claims are created while holding the repository Git lock, before mutable review/comment writes are blocked.
+- Git recovery inspects both branch refs and pinned commit ancestry. It never executes a merge.
+- If the target contains the pinned source commit, recovery finalizes the PR as merged and records the first-parent merge commit (or the pinned target for an already-ancestor no-op).
+- If the target is still exactly at the pinned target SHA and both refs/commits are available, recovery safely returns the PR to open.
+- Diverged targets, missing refs, missing commit objects and other inconclusive states remain in merging; the endpoint reports a recoverable ambiguity instead of guessing.
+- Recovery is available to owners/maintainers through POST /api/pull-requests/:id/reconcile-merge after a five-minute grace period.
+- Once a native Git merge has been attempted, ordinary error handling no longer releases the claim blindly.
+- Added lifecycle tests and temporary-Git integration tests for completed-before-crash, not-completed, already-ancestor/no-op, target divergence and unavailable source refs.
+- Updated README.md and docs/api.md with the recovery behavior and endpoint.
 
 ## Latest verified CI
 
-Both latest-head runs completed successfully on commit `68a6a3bb3a0e4ceaf1849e175ba580a8291a8966`:
+The preceding handoff checkpoint, commit a8de145ad04cd2ce604074bbe053238335299f35, passed CodeVault CI run #156:
+- Run: https://github.com/somildholakia/CodeVault/actions/runs/41568046788
+- Frontend production build, backend syntax validation, Git/backend test suite and product website tests all passed.
 
-- Push CI #153: https://github.com/somildholakia/CodeVault/actions/runs/41389446006
-- Pull-request CI #154: https://github.com/somildholakia/CodeVault/actions/runs/41389450280
-- Backend tests: 89 passed, 0 failed.
-- Product website tests: 7 passed, 0 failed.
-- Frontend production build: passed.
-- Backend syntax validation: passed.
-
-Re-check the branch head and latest workflow runs before making changes; the branch may have moved since this document was written.
+The merge-recovery implementation was pushed in the subsequent checkpoint ending at e8e6d21b92645d51e07a31715172c64b1fc8ada4. Its Actions run must be checked before treating this new behavior as CI-verified. Do not use the prior #156 result as proof for the new code.
 
 ## Implemented feature areas
 
@@ -54,17 +54,7 @@ For the full feature inventory and local/deployment setup, see `README.md`.
 
 ## Next recommended engineering task
 
-Harden pull-request merge crash recovery.
-
-Current lifecycle helpers are in `server/src/services/pullRequestLifecycle.js`:
-- `assertPullRequestOpen`
-- `claimPullRequestMerge`
-- `completePullRequestMerge`
-- `releasePullRequestMerge`
-
-The merge route claims a PR as `merging` before running Git and releases it on handled errors. A process crash after the claim can leave the PR in `merging` indefinitely.
-
-Implement safe stale-merge reconciliation. Do not blindly reopen stale merges and do not automatically perform a merge during recovery. Persist the reviewed source SHA and target SHA with the claim; under the repository Git lock, inspect Git ancestry/ref state. If the target contains the pinned source commit, finalize the PR as merged. If the merge demonstrably did not occur, safely return it to open. If Git state is ambiguous or refs are unavailable, preserve the merging state and report a clear recoverable error. Add lifecycle unit tests and real temporary-Git integration tests for completed-before-crash, not-completed, already-ancestor/no-op, and ambiguous-ref cases.
+Replace the process-local repository lock with a durable, cross-process coordination strategy before enabling multi-instance API deployment. The design should use leases/fencing or isolated Git worktrees, prove stale-lock recovery and prevent concurrent writes across processes. Keep durable storage, backup/restore drills and independent security review as explicit production gates.
 
 ## Working rules for the next chat
 

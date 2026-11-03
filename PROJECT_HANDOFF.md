@@ -10,37 +10,42 @@ Last verified: 2026-11-03 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Latest branch head: `18fdbf418b5bffa55c605b8a3926d2a3b927b0bc`
+- Latest branch head: `8279b56e53878d2f031c45b91462e97bb4e5e7a4`
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
-## Latest completed change — portable Git bundle backups
+## Latest completed change — portable Git backup and local restore
 
-Checkpoint `18fdbf4` — authenticated, verified repository backup downloads.
+Checkpoint `8279b56` — verified bundle downloads plus a safe one-command local restore utility.
 
-- Added `GET /api/repositories/:id/backup`, available to repository readers through the normal server-side permission check.
+- Added authenticated `GET /api/repositories/:id/backup`, authorized through the existing repository-reader permission check.
 - Snapshot generation is serialized with the repository MongoDB lease and uses `git bundle create --all`, so every committed branch and tag is included.
-- Every generated bundle is verified with `git bundle verify` before the server streams it.
-- The server calculates SHA-256 and returns it in `X-Content-SHA256`; `X-Git-Ref-Count` reports the number of advertised refs.
+- Every generated bundle is checked with `git bundle verify` before delivery.
+- The server calculates SHA-256 and returns `X-Content-SHA256`; `X-Git-Ref-Count` reports the advertised ref count.
 - The response is `application/x-git-bundle`, private/no-store and streamed from a temporary file. Temporary files are removed after successful transfer, client disconnect or stream failure.
 - Backup size is limited by `MAX_REPOSITORY_BACKUP_SIZE_MB` (default 500 MiB; accepted configuration range 1–2048 MiB). Oversized bundles return `BACKUP_TOO_LARGE` / HTTP 413 and the temporary file is removed.
 - The endpoint is rate-limited to 3 downloads per IP per 15 minutes.
 - Added a repository-page **Download Git backup** action.
-- Added tests for bundle checksum/ref metadata, restoring all refs into a fresh bare Git repository with `git bundle unbundle` plus explicit `git update-ref`, creating a working clone and rejecting oversized bundles.
-- Documented restore steps in `README.md`, `docs/api.md` and `docs/architecture.md`.
+- Added `scripts/restore-git-bundle.js` and root command `npm run restore:bundle -- --bundle <file.bundle> --target <new-bare-repo> [--default-branch main]`.
+- The restore tool checks the bundle file/size and advertised refs, verifies the bundle, imports objects, recreates branch/tag refs, sets the requested default branch and runs Git connectivity validation. It refuses an existing target and removes an incomplete target if restore fails.
+- The tool's restore result contains Git history, branches and tags only. CodeVault users, collaborators, issues, pull requests and activity are separate MongoDB data and are not included in a Git bundle.
+- Updated `README.md`, `docs/api.md` and `docs/architecture.md` with download and restore guidance.
 
-This is a manual portable backup/download path only. It is not scheduled or off-site retention; someone must download and securely store the bundle outside the Render service.
+This is a manual portable recovery path only. It does not schedule backups or store them off-site automatically; the downloaded bundle must be stored securely outside the Render service.
 
 ## Latest verified CI
 
-Both workflows passed against branch head `18fdbf418b5bffa55c605b8a3926d2a3b927b0bc`:
+PR workflow passed against branch head `8279b56e53878d2f031c45b91462e97bb4e5e7a4`:
 
-- Push CI #250: https://github.com/somildholakia/CodeVault/actions/runs/41573027517
-- PR CI #251: https://github.com/somildholakia/CodeVault/actions/runs/41573032098
-- Backend tests: 108 passed, 0 failed.
+- PR CI #266: https://github.com/somildholakia/CodeVault/actions/runs/41573607941 — passed.
+- Backend tests: 109 passed, 0 failed.
 - Product website tests: 7 passed, 0 failed.
 - Frontend production build: passed.
 - Backend JavaScript syntax validation: passed.
-- Git bundle restore-integrity and backup size-limit tests: passed.
+- Git bundle restore-integrity and existing-target protection tests: passed.
+
+Push CI #265 for the same head is still pending at the time of this checkpoint:
+- https://github.com/somildholakia/CodeVault/actions/runs/41573600299
+- Do not describe this push workflow as passed unless its final conclusion is checked.
 
 ## Production storage topology — do not change without explicit approval
 
@@ -73,7 +78,7 @@ The checked-in `render.yaml` declares the Free plan and `REPO_STORAGE_DURABLE=fa
 - Pull requests, inline review threads, independent approval gates, immutable reviewed-source SHA validation and conservative interrupted-merge reconciliation.
 - MongoDB cross-worker repository leases, heartbeats and fencing tokens.
 - Production Git-write gate shared by repository mutations and pull-request merges.
-- Portable verified Git bundle downloads with checksum metadata and size/rate limits.
+- Portable Git bundle downloads, checksum metadata, download size/rate controls and a local restore CLI.
 - Releases, persisted activity, contribution heatmaps and repository analytics.
 - npm lockfile and exact-pinned Python dependency scanning against OSV.
 - Separate static product website and source archive links.
@@ -88,7 +93,7 @@ Design a provider-neutral Git storage adapter or dedicated Git storage service t
 
 1. Start by reading this file and the current `README.md`.
 2. Re-fetch the current branch ref, PR #1 metadata and latest Actions runs before editing.
-3. Inspect the actual current route, model, lease service, Git service and tests; do not rely solely on this summary.
+3. Inspect the actual current route, model, lease service, Git service, restore script and tests; do not rely solely on this summary.
 4. Make focused changes, add regression tests, run the full test/build/syntax checks and wait for GitHub Actions.
 5. Push commits to `feat/global-issue-tracker`, update PR #1 with new work and verification, and update this handoff at every checkpoint.
 6. Report the exact new commit SHA, CI results and PR status.

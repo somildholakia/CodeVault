@@ -23,6 +23,7 @@ import {repositoryPath,initRepository,listFiles,readFile,listCommits,listBranche
 import {assertRepositoryLease} from "../services/repositoryLock.js";
 const router=Router();router.use(requireAuth);
 const dependencyScanLimiter=rateLimit({windowMs:60000,limit:4,standardHeaders:"draft-7",legacyHeaders:false});
+const backupLimiter=rateLimit({windowMs:900000,limit:3,standardHeaders:"draft-7",legacyHeaders:false});
 async function getRepo(id){if(!mongoose.isValidObjectId(id))throw notFound("Repository not found.");const repo=await Repository.findById(id).populate("owner","username displayName avatarUrl");if(!repo)throw notFound("Repository not found.");return repo;}
 async function roleFor(repo,uid){if(repo.owner._id.toString()===uid.toString())return "owner";const c=await Collaborator.findOne({repository:repo._id,user:uid,acceptedAt:{$ne:null}});return c?.role||null;}
 const canRead=(role,repo)=>Boolean(role)||repo.visibility==="public";
@@ -46,7 +47,7 @@ router.post("/",asyncHandler(async(req,res)=>{
  res.status(201).json({repository:await Repository.findById(repo._id).populate("owner","username displayName avatarUrl"),cloneUrl:null});
 }));
 router.get("/:id",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id),role=await roleFor(repo,req.user._id);assertRead(role,repo);res.json({repository:repo,permission:role||"public-viewer"});}));
-router.get("/:id/backup",asyncHandler(async(req,res)=>{
+router.get("/:id/backup",backupLimiter,asyncHandler(async(req,res)=>{
  const repo=await getRepo(req.params.id);
  assertRead(await roleFor(repo,req.user._id),repo);
  const backup=await withRepositoryLock(repo._id,()=>createRepositoryBundle(repo._id));

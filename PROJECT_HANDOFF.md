@@ -10,31 +10,36 @@ Last verified: 2026-11-03 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Recovery implementation and documentation checkpoint before this handoff update: `e8e6d21b92645d51e07a31715172c64b1fc8ada4`
+- Latest fully verified branch head before this handoff update: `b0a0c07e3a17883a5d27c29dbae839105084d5cd`
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change
 
-Checkpoint e8e6d21 — conservative pull-request merge crash recovery.
+Checkpoint `b0a0c07` — conservative pull-request merge crash recovery, fully CI-verified.
 
-- Merge claims now persist the reviewed source SHA, target SHA, start time and initiating user.
+- Merge claims persist the reviewed source SHA, target SHA, claim timestamp and initiating user.
 - Claims are created while holding the repository Git lock, before mutable review/comment writes are blocked.
 - Git recovery inspects both branch refs and pinned commit ancestry. It never executes a merge.
-- If the target contains the pinned source commit, recovery finalizes the PR as merged and records the first-parent merge commit (or the pinned target for an already-ancestor no-op).
+- If the target contains the pinned source commit, recovery finalizes the PR as merged and records the identified first-parent merge commit (or the pinned target for an already-ancestor no-op).
 - If the target is still exactly at the pinned target SHA and both refs/commits are available, recovery safely returns the PR to open.
 - Diverged targets, missing refs, missing commit objects and other inconclusive states remain in merging; the endpoint reports a recoverable ambiguity instead of guessing.
-- Recovery is available to owners/maintainers through POST /api/pull-requests/:id/reconcile-merge after a five-minute grace period.
-- Once a native Git merge has been attempted, ordinary error handling no longer releases the claim blindly.
+- Owners/maintainers can call `POST /api/pull-requests/:id/reconcile-merge` after a five-minute grace period.
+- Once native Git merge has been attempted, ordinary error handling no longer releases the claim blindly.
 - Added lifecycle tests and temporary-Git integration tests for completed-before-crash, not-completed, already-ancestor/no-op, target divergence and unavailable source refs.
-- Updated README.md and docs/api.md with the recovery behavior and endpoint.
+- Updated `README.md` and `docs/api.md` with behavior and endpoint documentation.
 
 ## Latest verified CI
 
-The preceding handoff checkpoint, commit a8de145ad04cd2ce604074bbe053238335299f35, passed CodeVault CI run #156:
-- Run: https://github.com/somildholakia/CodeVault/actions/runs/41568046788
-- Frontend production build, backend syntax validation, Git/backend test suite and product website tests all passed.
+Both workflows passed against branch head `b0a0c07e3a17883a5d27c29dbae839105084d5cd`:
 
-The merge-recovery implementation was pushed in the subsequent checkpoint ending at e8e6d21b92645d51e07a31715172c64b1fc8ada4. Its Actions run must be checked before treating this new behavior as CI-verified. Do not use the prior #156 result as proof for the new code.
+- Push CI #174: https://github.com/somildholakia/CodeVault/actions/runs/41568745275
+- PR CI #175: https://github.com/somildholakia/CodeVault/actions/runs/41568749684
+- Backend tests: 98 passed, 0 failed.
+- Product website tests: 7 passed, 0 failed.
+- Frontend production build: passed.
+- Backend JavaScript syntax validation: passed.
+
+Both CI jobs completed successfully. The push workflow and PR synchronization workflow ran independently.
 
 ## Implemented feature areas
 

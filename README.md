@@ -14,6 +14,7 @@ A version-control and collaboration workspace for student development teams. Cod
 
 - Registration, login, logout and profile updates.
 - Repository creation with a real initial Git commit, README, .gitignore and MIT license option.
+- Owner/collaborator-authorized portable Git bundle downloads, verified before streaming, covering committed branches and tags with a SHA-256 checksum.
 - Owner-confirmed repository deletion serialized against Git writes, with dependent issues, pull requests, branch rules, collaborators, activity and number counters purged.
 - Public/private repository metadata and server-side owner/collaborator permission checks.
 - File browsing, in-browser text editing, commit creation, history and commit diffs.
@@ -51,10 +52,11 @@ A version-control and collaboration workspace for student development teams. Cod
 - `server/src/services/sequences.js` — atomic issue and pull-request numbering.
 - `server/src/services/repositoryCleanup.js` — repository-scoped dependent-record cleanup.
 - `server/src/services/repositoryLock.js` — MongoDB lease, heartbeat, fencing and ownership validation.
+- `server/src/services/git.js` — verified Git bundle snapshots for portable repository backup and restore.
 - `server/test/` — temporary Git repository, cross-worker lease contention/recovery/fencing, review-policy, cookie-policy, request-origin, concurrent sequence-allocation, reviewed-source merge, pull-request lifecycle, repository-cleanup and full-history activity tests.
 - `docs/` — architecture, API, diagrams and final-year project report draft.
 
-Source archives and external notifications remain future work. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
+Remote automated backup retention, a provider-backed Git storage service and external notifications remain future work. The current manual Git bundle download is portable, but it does not create an off-site backup automatically. Exact-version npm vulnerability checks require a committed supported lockfile; multi-instance distributed Git locking still requires additional production hardening.
 
 ## Product website
 
@@ -85,7 +87,7 @@ The checked-in Render blueprint currently uses the Free plan and sets `REPO_STOR
 
 ## Verification and limitations
 
-Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews and invalid path/ref rejection. Pull-request review-policy tests check independent approvals and change-request blocking. Authentication cookie and request-origin policy tests cover production cross-site cookie attributes and cookie-authenticated mutation origins. GitHub Actions runs the frontend production build, backend syntax validation, backend tests and product website tests.
+Git engine tests use temporary repositories and exercise real Git initialization, branch creation, file commits, diffs, clean merges, conflict previews, invalid path/ref rejection and Git bundle backup/clone-restore integrity, including branch/tag preservation and backup size limits. Pull-request review-policy tests check independent approvals and change-request blocking. Authentication cookie and request-origin policy tests cover production cross-site cookie attributes and cookie-authenticated mutation origins. GitHub Actions runs the frontend production build, backend syntax validation, backend tests and product website tests.
 
 The Git service uses one shared worktree per repository and MongoDB-backed leases with monotonically increasing fencing tokens. A lease is reclaimed only after expiry; heartbeats renew it, and each native Git command checks the current owner/fence before and after execution. This coordinates API workers only when they use the same MongoDB database and the same shared repository volume. Separate per-instance disks are not coordinated by MongoDB and must not be used for multi-instance Git writes. Before scale-out, verify shared-volume semantics and crash recovery, then complete backup/restore drills, quota enforcement and an independent security review.
 

@@ -582,7 +582,7 @@ test("exports a verified Git bundle that restores branches, tags and full commit
    "ls-tree","-r","--name-only","refs/heads/feature/backup"
   ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
 
-  assert.ok(restoredBranches.includes("refs/heads/main"));
+  assert.ok(restoredBranches.includes("refs/heads/main"),"Restored refs: "+JSON.stringify(restoredRefs)+"; bundle refs: "+JSON.stringify(backup.refs));
   assert.ok(restoredBranches.includes("refs/heads/feature/backup"));
   assert.ok(restoredTags.includes("refs/tags/v1.0.0"));
   assert.ok(restoredFiles.includes("src/backup.js"));

@@ -36,6 +36,7 @@ A version-control and collaboration workspace for student development teams. Cod
 - Collaborator roles: owner, maintainer, developer and viewer.
 - Persisted pull requests with source/target refs, review decisions, an independent-approval merge gate, merge commit reference and activity records.
 - Atomic pull-request merge claiming: review submissions, inline comments, thread resolution and closure use conditional writes and cannot race a merge already in progress. The branch-pair uniqueness constraint covers both open and merging states, and a Git-completed merge is never reopened if database finalization fails.
+- Crash-safe pull-request merge recovery: claims pin the reviewed source SHA, target SHA and initiating user; a maintainer can reconcile an old claim after a five-minute grace period. Recovery reads Git refs/ancestry under the repository lock, finalizes only a proven merge, reopens only when the target is unchanged, and preserves ambiguous states without replaying a merge.
 - Activity history, Git-derived analytics and a short Git Learning Mode.
 - Responsive, warm-paper workspace UI and Vercel same-origin API proxy.
 

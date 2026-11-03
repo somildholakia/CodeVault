@@ -90,7 +90,7 @@ Design a provider-neutral Git storage adapter or dedicated Git storage service t
 
 ## Working rules for the next chat
 
-1. Start by reading this file and the current `README.md`.
+1. Start by reading this file, the current `README.md` and `docs/git-storage-provider-contract.md`.
 2. Re-fetch the current branch ref, PR #1 metadata and latest Actions runs before editing.
 3. Inspect the actual current route, model, lease service, Git service, restore script and tests; do not rely solely on this summary.
 4. Make focused changes, add regression tests, run the full test/build/syntax checks and wait for GitHub Actions.

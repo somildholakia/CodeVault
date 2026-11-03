@@ -565,23 +565,27 @@ test("exports a verified Git bundle that restores branches, tags and full commit
   assert.equal(createHash("sha256").update(bytes).digest("hex"),backup.sha256);
   execFileSync("git",["clone","--quiet",backup.path,restoredPath],{stdio:"pipe"});
 
-  const restoredBranches = execFileSync("git",[
-   "for-each-ref","--format=%(refname)","refs/heads"
+  const restoredRefs = execFileSync("git",[
+   "for-each-ref","--format=%(refname)","refs/heads","refs/remotes/origin","refs/tags"
   ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
-  const restoredTags = execFileSync("git",[
-   "for-each-ref","--format=%(refname)","refs/tags"
-  ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
+  const restoredTags = restoredRefs.filter(ref=>ref.startsWith("refs/tags/"));
+  const mainRef = restoredRefs.includes("refs/heads/main")
+   ? "refs/heads/main"
+   : "refs/remotes/origin/main";
+  const featureRef = restoredRefs.includes("refs/heads/feature/backup")
+   ? "refs/heads/feature/backup"
+   : "refs/remotes/origin/feature/backup";
   const restoredFiles = execFileSync("git",[
-   "ls-tree","-r","--name-only","refs/heads/feature/backup"
+   "ls-tree","-r","--name-only",featureRef
   ],{cwd:restoredPath,encoding:"utf8"}).trim().split(/\\r?\\n/);
 
-  assert.ok(restoredBranches.includes("refs/heads/main"));
-  assert.ok(restoredBranches.includes("refs/heads/feature/backup"));
+  assert.ok(restoredRefs.includes(mainRef));
+  assert.ok(restoredRefs.includes(featureRef));
   assert.ok(restoredTags.includes("refs/tags/v1.0.0"));
   assert.ok(restoredFiles.includes("src/backup.js"));
   assert.ok(!restoredFiles.includes("untracked.js"));
   assert.equal(
-   execFileSync("git",["rev-parse","refs/heads/feature/backup"],{cwd:restoredPath,encoding:"utf8"}).trim(),
+   execFileSync("git",["rev-parse",featureRef],{cwd:restoredPath,encoding:"utf8"}).trim(),
    source.sha
   );
  } finally {

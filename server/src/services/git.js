@@ -50,7 +50,7 @@ export async function inspectPullRequestMerge(id, claim = {}) {
         return true;
       } catch (error) {
         if (error.code === 1) return false;
-        const detail = [error.stderr, error.stdout].filter(Boolean).map(String).join("\\n").trim();
+        const detail = [error.stderr, error.stdout].filter(Boolean).map(String).join("\n").trim();
         throw new AppError(409, "GIT_RECONCILIATION_FAILED", (detail || "Git could not verify commit ancestry.").slice(0, 500));
       }
     };
@@ -67,7 +67,7 @@ export async function inspectPullRequestMerge(id, claim = {}) {
       }
       const commits = (await git(root, [
         "rev-list", "--first-parent", "--reverse", targetHead, "^" + targetSha
-      ])).stdout.split(/\\r?\\n/).filter(Boolean);
+      ])).stdout.split(/\r?\n/).filter(Boolean);
       for (const candidate of commits) {
         if (await isAncestor(sourceSha, candidate)) {
           return {state: "completed", mergeCommit: candidate, sourceHead, targetHead};

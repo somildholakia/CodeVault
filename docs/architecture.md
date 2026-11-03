@@ -27,7 +27,7 @@ flowchart LR
 
 **Metadata database.** Mongoose schemas define User, Repository, Collaborator, Issue, Activity, PullRequest and RepositoryLock. Unique indexes protect usernames/emails, owner+repository slug, (repository,issue number), (repository,pull-request number), and collaborator membership.
 
-**Git storage.** Every repository is a real Git repository located under `REPO_STORAGE_PATH/<repository ObjectId>`. Git commands are invoked with Node's `execFile` and an argument array, never shell interpolation. Git remains the source of truth for file trees, commits, refs, diffs and merges.
+**Git storage.** Every repository is a real Git repository located under `REPO_STORAGE_PATH/<repository ObjectId>`. Git commands are invoked with Node's `execFile` and an argument array, never shell interpolation. Git remains the source of truth for file trees, commits, refs, diffs and merges. `gitStorageAdapter.js` is the provider-facing local implementation for atomic ref compare-and-swap, generation tracking, idempotent operation records, crash recovery, verified bundle import/export and integrity checks. The current service uses it for repository path resolution, branch creation and backup export; remaining direct Git mutation paths will migrate incrementally.
 
 ## Data model
 
@@ -54,6 +54,12 @@ The repository backup endpoint is rate-limited to three downloads per IP per 15 
 | Public viewer | Public repositories only | No | May review public PRs | No | No |
 
 Private repository identifiers are not authorization. Access is checked server-side for each request. Missing/private resources are returned as 404 where appropriate.
+
+## Git storage adapter
+
+The local adapter persists its operation journal and generation metadata under `.codevault-state/<repositoryId>` next to (not inside) the Git repository, so internal state is not exported in Git bundles. Ref changes use Git's atomic `update-ref --stdin` transaction with expected old object IDs. Operation IDs are payload-bound and replay-safe; prepared journal entries are reconciled by comparing every ref against the expected pre- and post-transaction values. A mismatch is treated as an ambiguous recovery state and blocks further adapter writes. The observed generation also hashes the current ref map, so legacy Git mutation paths are detected and advance the next observed generation. Fencing tokens are checked against the last accepted token. Bundle imports write objects before atomically publishing refs, and repository verification runs Git connectivity checks.
+
+This local adapter does not replace MongoDB's distributed repository lease. API mutations must continue to hold that lease, and the storage layer still resides on the configured local filesystem. It does not make separate per-instance disks consistent or horizontally scalable. The provider-neutral contract describes the later remote service boundary.
 
 ## Git operation safety
 

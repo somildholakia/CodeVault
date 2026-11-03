@@ -64,7 +64,7 @@ Private repository identifiers are not authorization. Access is checked server-s
 
 ## Deployment model
 
-Vercel serves the client. A Vercel rewrite proxies `/api/*` to the Render backend on the same origin, so browser session cookies do not need cross-site cookie settings. Render runs the Express API and connects to MongoDB Atlas. A persistent Render disk is required for repository Git data.
+Vercel serves the client. A Vercel rewrite proxies `/api/*` to the Render backend on the same origin, so browser session cookies do not need cross-site cookie settings. Render runs the Express API and connects to MongoDB Atlas. A persistent Render disk is required for repository Git data. The repository's current Render blueprint remains on the Free plan with `REPO_STORAGE_DURABLE=false`; production Git mutations are therefore rejected. Render Free does not support persistent disks. A disk-backed Render service is single-instance, so the MongoDB lease is a coordination foundation for a future shared-storage topology, not proof that Render disk-backed instances can be horizontally scaled.
 
 ## Known limitations and next steps
 

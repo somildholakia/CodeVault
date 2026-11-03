@@ -77,8 +77,9 @@ Issue status is `open` or `closed`; priority is low, medium, high or critical. T
 | POST | `/pull-requests/:id/reviews` | Repository reader other than the PR author |
 | POST | `/pull-requests/:id/close` | PR author, owner or maintainer |
 | POST | `/pull-requests/:id/merge` | Owner/maintainer, with independent approval and no outstanding change request |
+| POST | `/pull-requests/:id/reconcile-merge` | Owner/maintainer; recover a stale merge claim after its five-minute grace period |
 
-Create body: `{ repositoryId, title, description, sourceBranch, targetBranch }`. Review body: `{ decision, body }`, where decision is `approved`, `changes_requested` or `commented`. Inline comment body: `{ path, line, side: "RIGHT", commitSha, body }`; comments must point to an added line in the current diff. Thread resolution body: `{ resolved: true|false }`. A PR cannot merge until at least one non-author collaborator approves it; any outstanding `changes_requested` review blocks merge. Merge also runs native Git conflict detection.
+Create body: `{ repositoryId, title, description, sourceBranch, targetBranch }`. Review body: `{ decision, body }`, where decision is `approved`, `changes_requested` or `commented`. Inline comment body: `{ path, line, side: "RIGHT", commitSha, body }`; comments must point to an added line in the current diff. Thread resolution body: `{ resolved: true|false }`. A PR cannot merge until at least one non-author collaborator approves it; any outstanding `changes_requested` review blocks merge. Merge also runs native Git conflict detection. Merge claims persist the reviewed source and target SHAs. The reconciliation endpoint does not run Git merge: it only inspects branch refs and ancestry under the repository lock. It finalizes a claim when the pinned source is proven to be in the target history, reopens only when the target is still exactly at its pinned SHA, and otherwise returns `409 PULL_REQUEST_MERGE_AMBIGUOUS` while preserving the `merging` state. Claims younger than five minutes return `409 PULL_REQUEST_MERGE_NOT_STALE`.
 
 ## Analytics and activity
 

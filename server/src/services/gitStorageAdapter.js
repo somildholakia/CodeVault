@@ -215,17 +215,16 @@ export function createLocalGitStorageAdapter(options={}){
   const leaseFence=Number.isSafeInteger(input.fencingToken)?input.fencingToken:0;
   if(leaseFence<0)throw new AppError(400,"INVALID_FENCING_TOKEN","The fencing token must be a non-negative integer.");
 
-  const payload={repositoryId:id,expectedGeneration,changes};
+  const payload={repositoryId:id,expectedGeneration,changes,...(input.operationPayload||{})};
   const payloadHash=createHash("sha256").update(JSON.stringify(payload)).digest("hex");
   const recordFile=operationPath(id,op);
+  await recoverPendingUnlocked(id,root);
   const previous=await readJson(recordFile,null);
   if(previous){
    if(previous.payloadHash!==payloadHash)throw new AppError(409,"STORAGE_OPERATION_ID_REUSED","This operation ID was already used with a different request.");
    if(previous.status==="committed")return previous.result;
    return journalResult(previous);
   }
-
-  await recoverPendingUnlocked(id,root);
   const state=await stateFor(id);
   if(state.generation!==expectedGeneration)throw new AppError(409,"STORAGE_GENERATION_CONFLICT","The repository changed since this operation was prepared.",{expectedGeneration,actualGeneration:state.generation});
   if(leaseFence<state.fence)throw new AppError(409,"STORAGE_FENCE_STALE","This worker's fencing token is older than the latest accepted Git storage writer.",{providedFence:leaseFence,latestFence:state.fence});
@@ -366,7 +365,8 @@ export function createLocalGitStorageAdapter(options={}){
     return applyChangesUnlocked(id,root,{
      ...input,
      fencingToken:input.fencingToken??lease?.fence??0,
-     bundleSha256
+     bundleSha256,
+     operationPayload:{bundleSha256,defaultBranch:input.defaultBranch||null}
     },changes,async()=>{
      if(!preflight.stdout&&!preflight.stderr)throw new AppError(422,"INVALID_GIT_BUNDLE","Git did not verify the supplied bundle.");
      await runGit(root,["bundle","unbundle",bundlePath]);
@@ -382,6 +382,7 @@ export function createLocalGitStorageAdapter(options={}){
   async verifyRepository({repositoryId:id}){
    return scoped(id,async()=>{
     const root=repositoryPath(id);
+    await recoverPendingUnlocked(id,root);
     const refs=await listRefValues(root);
     const report=await runGit(root,["fsck","--full","--connectivity-only","--no-reflogs"]);
     const generation=(await stateFor(id)).generation;

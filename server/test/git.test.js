@@ -152,6 +152,105 @@ test("rejects stale, unrelated, root and malformed commit reverts",async()=>{
  await assert.rejects(()=>git.revertCommit(id,"main","bad",mainHead,author),e=>e.code==="INVALID_COMMIT");
 });
 
+test("adapter-backed revert retries deterministically after failures before object creation and after object persistence",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const created=await git.commitFile(id,"main","src/retry-revert.js","export const retryMe = true;\\n","Add retry revert fixture",author);
+ const head=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ const operationId="revert-retry-object-001";
+ await assert.rejects(()=>git.revertCommit(id,"main",created.sha,head,author,{operationId,failureAt:"beforeObjectCreation"}),/Injected revert failure at beforeObjectCreation/);
+ assert.equal((await git.listBranches(id)).find(item=>item.name==="main").sha,head);
+ const persisted=[];
+ await assert.rejects(()=>git.revertCommit(id,"main",created.sha,head,author,{
+  operationId,failureAt:"afterObjectPersistence",
+  onStage:(stage,details)=>{if(stage==="afterObjectPersistence")persisted.push(details.commitSha);}
+ }),/Injected revert failure at afterObjectPersistence/);
+ assert.equal(persisted.length,1);
+ assert.equal(execFileSync("git",["cat-file","-t",persisted[0]],{cwd:git.repositoryPath(id),encoding:"utf8"}).trim(),"commit");
+ assert.equal((await git.listBranches(id)).find(item=>item.name==="main").sha,head);
+ const recovered=await git.revertCommit(id,"main",created.sha,head,author,{operationId});
+ assert.equal(recovered.revertCommit,persisted[0]);
+ assert.equal(recovered.replayed,false);
+ const matching=execFileSync("git",["log","--format=%H","--fixed-strings","--grep=CodeVault-Operation-Id: "+operationId,"refs/heads/main"],{cwd:git.repositoryPath(id),encoding:"utf8"}).trim().split(/\r?\n/).filter(Boolean);
+ assert.equal(matching.length,1);
+ assert.equal((await git.gitStorageAdapter.verifyRepository({repositoryId:id})).ok,true);
+});
+
+test("adapter-backed revert fails closed after journal preparation and immediately before ref publication",async()=>{
+ for(const [failureAt,suffix] of [["afterJournalPreparation","journal"],["beforeRefPublication","publish"]]){
+  const id=await makeRepo();
+  const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+  const created=await git.commitFile(id,"main","src/"+suffix+"-revert.js","export const value = true;\\n","Add "+suffix+" revert fixture",author);
+  const head=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+  const operationId="revert-fail-"+suffix+"-001";
+  await assert.rejects(()=>git.revertCommit(id,"main",created.sha,head,author,{operationId,failureAt}),/Injected revert failure/);
+  const operations=path.join(process.env.REPO_STORAGE_PATH,".codevault-state",id,"operations");
+  const journal=JSON.parse(await fs.readFile(path.join(operations,operationId+".json"),"utf8"));
+  assert.equal(journal.status,"aborted");
+  assert.equal((await git.listBranches(id)).find(item=>item.name==="main").sha,head);
+  await assert.rejects(()=>git.revertCommit(id,"main",created.sha,head,author,{operationId}),
+   error=>error.code==="STORAGE_OPERATION_FAILED"||error.code==="STORAGE_OPERATION_INTERRUPTED");
+  assert.equal((await git.gitStorageAdapter.verifyRepository({repositoryId:id})).ok,true);
+ }
+});
+
+test("adapter-backed revert retries after a response is lost immediately after publication without duplicating the commit",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const created=await git.commitFile(id,"main","src/response-loss.js","export const responseLoss = true;\\n","Add response-loss fixture",author);
+ const head=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ const operationId="revert-response-loss-001";
+ await assert.rejects(()=>git.revertCommit(id,"main",created.sha,head,author,{operationId,failureAt:"afterRefPublication"}),/Injected revert failure at afterRefPublication/);
+ const published=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ assert.notEqual(published,head);
+ const retried=await git.revertCommit(id,"main",created.sha,head,author,{operationId});
+ assert.equal(retried.revertCommit,published);
+ assert.equal(retried.replayed,true);
+ const matching=execFileSync("git",["log","--format=%H","--fixed-strings","--grep=CodeVault-Operation-Id: "+operationId,"refs/heads/main"],{cwd:git.repositoryPath(id),encoding:"utf8"}).trim().split(/\r?\n/).filter(Boolean);
+ assert.equal(matching.length,1);
+ assert.equal((await git.gitStorageAdapter.verifyRepository({repositoryId:id})).ok,true);
+});
+
+test("recovers a prepared revert journal after publication and returns the existing operation commit",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ const created=await git.commitFile(id,"main","src/interrupted-revert.js","export const interrupted = true;\\n","Add interrupted revert fixture",author);
+ const head=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ const operationId="revert-interrupted-001";
+ const published=await git.revertCommit(id,"main",created.sha,head,author,{operationId});
+ const stateDirectory=path.join(process.env.REPO_STORAGE_PATH,".codevault-state",id);
+ const journalFile=path.join(stateDirectory,"operations",operationId+".json");
+ const journal=JSON.parse(await fs.readFile(journalFile,"utf8"));
+ journal.status="prepared";
+ delete journal.result;
+ await fs.writeFile(journalFile,JSON.stringify(journal));
+ await fs.writeFile(path.join(stateDirectory,"state.json"),JSON.stringify({generation:journal.generationBefore,fence:0}));
+ const retried=await git.revertCommit(id,"main",created.sha,head,author,{operationId});
+ assert.equal(retried.revertCommit,published.revertCommit);
+ assert.equal(retried.replayed,true);
+ const recovered=JSON.parse(await fs.readFile(journalFile,"utf8"));
+ assert.equal(recovered.status,"committed");
+ assert.equal(recovered.result.recovered,true);
+ assert.equal((await git.gitStorageAdapter.verifyRepository({repositoryId:id})).ok,true);
+});
+
+test("rejects stale revert heads and preserves merge-commit mainline behavior",async()=>{
+ const id=await makeRepo();
+ const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
+ await git.createBranch(id,"feature/revert-mainline","main");
+ const side=await git.commitFile(id,"feature/revert-mainline","side.js","export const side = true;\\n","Add side for merge revert",author);
+ await git.commitFile(id,"main","main.js","export const main = true;\\n","Add main for merge revert",author);
+ const headBeforeMerge=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ await git.mergeBranches(id,"feature/revert-mainline","main",headBeforeMerge);
+ const mergeHead=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ await assert.rejects(()=>git.revertCommit(id,"main",mergeHead,mergeHead,author,{mainline:1,operationId:"revert-merge-mainline-01"}),error=>error.code==="MERGE_COMMIT_REVERT_UNSUPPORTED");
+ await git.commitFile(id,"main","next.js","export const next = true;\\n","Advance after merge",author);
+ const stale=(await git.listBranches(id)).find(item=>item.name==="main").sha;
+ await assert.rejects(()=>git.revertCommit(id,"main",side.sha,mergeHead,author,{operationId:"revert-stale-head-001"}),error=>error.code==="BRANCH_MOVED");
+ assert.equal((await git.listBranches(id)).find(item=>item.name==="main").sha,stale);
+ assert.equal((await git.gitStorageAdapter.verifyRepository({repositoryId:id})).ok,true);
+});
+
 test("validates changed-line review anchors in a branch diff",()=>{
  const diff=[
   "diff --git a/src/file.js b/src/file.js",

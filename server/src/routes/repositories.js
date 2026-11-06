@@ -211,12 +211,13 @@ router.post("/:id/revert",asyncHandler(async(req,res)=>{
  const p=z.object({
   branch:z.string().trim().min(1).max(160),
   commitSha:z.string().regex(/^[a-f0-9]{40}$/i),
-  expectedHead:z.string().regex(/^[a-f0-9]{40}$/i)
+  expectedHead:z.string().regex(/^[a-f0-9]{40}$/i),
+  operationId:z.string().regex(/^[A-Za-z0-9_-]{8,128}$/).optional()
  }).strict().safeParse(req.body);
- if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose a branch, commit and current branch head.",p.error.flatten());
+ if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose a branch, commit, current branch head and optional operation ID.",p.error.flatten());
  const protection=await protectionForBranch(repo,p.data.branch);if(protection?.requirePullRequest)throw new AppError(409,"DIRECT_PUSH_BLOCKED","This branch requires changes to be merged through an approved pull request.",{pattern:protection.pattern});
- const result=await withRepositoryLock(repo._id,()=>revertCommit(repo._id,p.data.branch,p.data.commitSha,p.data.expectedHead,req.user));
- await event(req.user._id,repo,"commit.reverted","commit",result.revertedCommit,"Reverted commit "+result.revertedCommit.slice(0,7)+" on "+result.branch+".",result.revertCommit);
+ const result=await withRepositoryLock(repo._id,()=>revertCommit(repo._id,p.data.branch,p.data.commitSha,p.data.expectedHead,req.user,{operationId:p.data.operationId}));
+ if(!result.replayed)await event(req.user._id,repo,"commit.reverted","commit",result.revertedCommit,"Reverted commit "+result.revertedCommit.slice(0,7)+" on "+result.branch+".",result.revertCommit);
  res.status(201).json({revert:result});
 }));
 router.get("/:id/commits/:sha/diff",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);res.json({diff:await diffCommit(repo._id,req.params.sha)});}));

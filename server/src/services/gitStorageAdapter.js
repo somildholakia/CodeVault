@@ -239,7 +239,7 @@ export function createLocalGitStorageAdapter(options={}){
   }
  }
 
- async function applyChangesUnlocked(id,root,input,changes,beforePublish){
+ async function applyChangesUnlocked(id,root,input,changes,beforePublish,beforeRefPublication){
   const op=operationId(input.operationId);
   const expectedGeneration=input.expectedGeneration;
   if(!Number.isSafeInteger(expectedGeneration)||expectedGeneration<0)throw new AppError(400,"EXPECTED_GENERATION_REQUIRED","Provide the current repository generation.");
@@ -292,6 +292,7 @@ export function createLocalGitStorageAdapter(options={}){
     else commands.push("update "+change.ref+" "+change.newObjectId+" "+change.expectedObjectId);
    }
    commands.push("prepare","commit","");
+   if(beforeRefPublication)await beforeRefPublication();
    await runGitInput(root,["update-ref","--stdin"],commands.join("\n"));
   }catch(error){
    const actual=[];
@@ -362,7 +363,7 @@ export function createLocalGitStorageAdapter(options={}){
     const changes=[{ref,expectedObjectId:expected,newObjectId:target}];
     return applyChangesUnlocked(id,repositoryPath(id),{
      ...input,fencingToken:input.fencingToken??lease?.fence??0
-    },changes);
+    },changes,input.beforePublish,input.beforeRefPublication);
    });
   },
   async exportBundle({repositoryId:id,maxSizeMb}){

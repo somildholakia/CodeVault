@@ -1,5 +1,5 @@
 import {execFile} from "node:child_process";
-import {randomUUID} from "node:crypto";
+import {createHash,randomUUID} from "node:crypto";
 
 import {promisify} from "node:util";
 import fs from "node:fs/promises";
@@ -692,7 +692,7 @@ export async function compareCommits(id, baseRef, targetRef) {
 }
 
 
-export async function revertCommit(id, branchName, commitSha, expectedHead, author = {}) {
+export async function revertCommit(id, branchName, commitSha, expectedHead, author = {}, options = {}) {
   const root = repositoryPath(id);
   const branch = safeRef(branchName);
   if (typeof commitSha !== "string" || !/^[a-f0-9]{40}$/i.test(commitSha)) {
@@ -701,31 +701,181 @@ export async function revertCommit(id, branchName, commitSha, expectedHead, auth
   if (typeof expectedHead !== "string" || !/^[a-f0-9]{40}$/i.test(expectedHead)) {
     throw new AppError(400, "EXPECTED_HEAD_REQUIRED", "Refresh the branch and provide its current head SHA before reverting.");
   }
-  const current = (await git(root, ["rev-parse", "--verify", branch + "^{commit}"])).stdout.trim();
-  if (current !== expectedHead) throw new AppError(409, "BRANCH_MOVED", "The branch changed since it was loaded. Refresh its history before reverting.");
+
+  const operationId = options.operationId || randomUUID();
+  if (typeof operationId !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(operationId)) {
+    throw new AppError(400, "INVALID_OPERATION_ID", "Provide an operation ID containing 8–128 letters, numbers, underscores or hyphens.");
+  }
+  const branchRef = "refs/heads/" + branch;
+  const expectedGeneration = await gitStorageAdapter.getGeneration({repositoryId:String(id)});
+  const current = (await git(root, ["rev-parse", "--verify", branchRef + "^{commit}"])).stdout.trim();
   const target = (await git(root, ["rev-parse", "--verify", commitSha + "^{commit}"])).stdout.trim();
+  const payloadHash = createHash("sha256").update(JSON.stringify({
+    repositoryId:String(id), branch, target, expectedHead:expectedHead.toLowerCase()
+  })).digest("hex");
+
+  // A retry after publication is recognized from the immutable commit trailers,
+  // even when the client did not receive the original response.
+  const previous = (await git(root, [
+    "log", "-1", "--format=%H", "--fixed-strings",
+    "--grep=CodeVault-Operation-Id: " + operationId, branchRef
+  ])).stdout.trim();
+  if (previous) {
+    const [previousBody, previousParents] = await Promise.all([
+      git(root, ["show", "-s", "--format=%B", previous]),
+      git(root, ["rev-list", "--parents", "-n", "1", previous])
+    ]);
+    const parents = previousParents.stdout.trim().split(" ").filter(Boolean).slice(1);
+    const validRetry = parents.length === 1 && parents[0] === expectedHead.toLowerCase() &&
+      previousBody.stdout.includes("This reverts commit " + target + ".") &&
+      previousBody.stdout.includes("CodeVault-Operation-Payload: " + payloadHash);
+    if (!validRetry) {
+      throw new AppError(409, "STORAGE_OPERATION_ID_REUSED", "This operation ID was already used with a different revert request.");
+    }
+    const targetParents = (await git(root, ["rev-list", "--parents", "-n", "1", target])).stdout.trim().split(" ").filter(Boolean);
+    const refresh = await refreshRevertWorktree(root, branch, current);
+    return {
+      branch, revertedCommit:target, revertCommit:previous, parentCommit:targetParents[1],
+      operationId, generation:expectedGeneration, replayed:true, ...refresh
+    };
+  }
+
+  if (current !== expectedHead.toLowerCase()) {
+    throw new AppError(409, "BRANCH_MOVED", "The branch changed since it was loaded. Refresh its history before reverting.");
+  }
   try {
-    const ancestry = await git(root, ["merge-base", "--is-ancestor", target, branch]);
-    if (ancestry.stdout) throw new Error("unexpected output");
+    await git(root, ["merge-base", "--is-ancestor", target, branchRef]);
   } catch {
     throw new AppError(400, "COMMIT_NOT_ON_BRANCH", "The selected commit is not part of the chosen branch history.");
   }
   const parents = (await git(root, ["rev-list", "--parents", "-n", "1", target])).stdout.trim().split(" ").filter(Boolean);
-  if (parents.length > 2) throw new AppError(409, "MERGE_COMMIT_REVERT_UNSUPPORTED", "Reverting a merge commit requires an explicit mainline parent and is not supported by this action.");
-  if (parents.length !== 2) throw new AppError(409, "ROOT_COMMIT_REVERT_UNSUPPORTED", "The initial root commit cannot be reverted with this action.");
+  if (parents.length > 2) {
+    throw new AppError(409, "MERGE_COMMIT_REVERT_UNSUPPORTED", "Reverting a merge commit requires an explicit mainline parent and is not supported by this action.");
+  }
+  if (parents.length !== 2) {
+    throw new AppError(409, "ROOT_COMMIT_REVERT_UNSUPPORTED", "The initial root commit cannot be reverted with this action.");
+  }
   const status = (await git(root, ["status", "--porcelain"])).stdout.trim();
   if (status) throw new AppError(409, "WORKTREE_NOT_CLEAN", "The repository has uncommitted changes. Save or discard them before reverting.");
-  await git(root, ["checkout", "--quiet", branch]);
-  const name = String(author.displayName || author.username || "CodeVault Member").slice(0, 80);
-  const email = String(author.email || "member@codevault.local").slice(0, 254);
+
+  const stage = async (name, details = {}) => {
+    if (typeof options.onStage === "function") await options.onStage(name, details);
+    if (options.failureAt === name) throw new Error("Injected revert failure at " + name + ".");
+  };
+  await stage("beforeObjectCreation", {operationId, branch, expectedHead:current, target});
+  const lease = await assertRepositoryLease(id);
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "codevault-revert-"));
   try {
-    await git(root, ["-c", "user.name=" + name, "-c", "user.email=" + email, "revert", "--no-edit", target]);
-  } catch (error) {
-    await git(root, ["revert", "--abort"]).catch(() => {});
-    throw new AppError(409, "REVERT_CONFLICT", "The selected change cannot be reverted cleanly on this branch. Resolve conflicts manually in a dedicated revert workflow.", {cause: error.message});
+    const sandbox = path.join(temporaryDirectory, "repository");
+    // A shared-object clone provides an isolated index and worktree. Only the
+    // resulting commit object is fetched back into the real repository.
+    await git(root, ["clone", "--shared", "--no-checkout", "--quiet", root, sandbox]);
+    await git(sandbox, ["checkout", "--quiet", "--detach", current]);
+    try {
+      await git(sandbox, ["revert", "--no-commit", target]);
+    } catch (error) {
+      throw new AppError(409, "REVERT_CONFLICT", "The selected change cannot be reverted cleanly on this branch. Resolve conflicts manually in a dedicated revert workflow.", {cause:error.message});
+    }
+
+    const name = String(author.displayName || author.username || "CodeVault Member").replace(/[\r\n\0]/g, " ").trim().slice(0, 80) || "CodeVault Member";
+    const email = String(author.email || "member@codevault.local").replace(/[\r\n\0]/g, " ").trim().slice(0, 254) || "member@codevault.local";
+    const subject = (await git(root, ["show", "-s", "--format=%s", target])).stdout.trim();
+    const safeSubject = subject.replace(/"/g, "'");
+    const message = [
+      'Revert "' + safeSubject + '"',
+      "",
+      "This reverts commit " + target + ".",
+      "",
+      "CodeVault-Operation-Id: " + operationId,
+      "CodeVault-Operation-Payload: " + payloadHash
+    ].join("\n");
+    const parentDate = (await git(root, ["show", "-s", "--format=%cI", current])).stdout.trim();
+    const parsedParentDate = Date.parse(parentDate);
+    if (Number.isNaN(parsedParentDate)) throw new AppError(500, "REVERT_PARENT_DATE_INVALID", "Git returned an invalid parent commit timestamp.");
+    // Stable timestamps make retries after object persistence produce the same
+    // commit object, so the adapter journal sees the exact same CAS payload.
+    const stableDate = new Date(parsedParentDate + 1000).toISOString();
+    await git(sandbox, [
+      "-c", "user.name=" + name, "-c", "user.email=" + email,
+      "commit", "--no-gpg-sign", "--message=" + message
+    ], {
+      GIT_AUTHOR_NAME:name, GIT_AUTHOR_EMAIL:email,
+      GIT_COMMITTER_NAME:name, GIT_COMMITTER_EMAIL:email,
+      GIT_AUTHOR_DATE:stableDate, GIT_COMMITTER_DATE:stableDate
+    });
+    const revertSha = (await git(sandbox, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
+    const generatedParents = (await git(sandbox, ["rev-list", "--parents", "-n", "1", revertSha])).stdout.trim().split(" ").filter(Boolean).slice(1);
+    if (generatedParents.length !== 1 || generatedParents[0] !== current) {
+      throw new AppError(500, "INVALID_REVERT_COMMIT", "The generated revert commit does not have the pinned branch head as its sole parent.");
+    }
+    const generatedBody = (await git(sandbox, ["show", "-s", "--format=%B", revertSha])).stdout;
+    if (!generatedBody.includes("This reverts commit " + target + ".") ||
+        !generatedBody.includes("CodeVault-Operation-Id: " + operationId) ||
+        !generatedBody.includes("CodeVault-Operation-Payload: " + payloadHash)) {
+      throw new AppError(500, "INVALID_REVERT_COMMIT", "The generated revert commit is missing its operation identity.");
+    }
+
+    // Import the commit object before any ref can point to it.
+    await git(root, ["fetch", "--no-tags", "--quiet", sandbox, "HEAD"]);
+    await git(root, ["cat-file", "-e", revertSha + "^{commit}"]);
+    const importedParents = (await git(root, ["rev-list", "--parents", "-n", "1", revertSha])).stdout.trim().split(" ").filter(Boolean).slice(1);
+    if (importedParents.length !== 1 || importedParents[0] !== current) {
+      throw new AppError(500, "INVALID_REVERT_COMMIT", "The imported revert commit does not have the pinned branch head as its sole parent.");
+    }
+    await stage("afterObjectPersistence", {operationId, branch, target, commitSha:revertSha});
+
+    let published;
+    try {
+      published = await gitStorageAdapter.compareAndSwapRef({
+        repositoryId:String(id),
+        ref:branchRef,
+        expectedObjectId:current,
+        newObjectId:revertSha,
+        expectedGeneration,
+        operationId,
+        fencingToken:lease?.fence || 0,
+        operationPayload:{type:"single-parent-revert",branch,target,expectedHead:current,payloadHash},
+        beforePublish:async()=>stage("afterJournalPreparation", {operationId, branch, target, commitSha:revertSha}),
+        beforeRefPublication:async()=>stage("beforeRefPublication", {operationId, branch, target, commitSha:revertSha})
+      });
+    } catch (error) {
+      if (["STORAGE_REF_CONFLICT", "STORAGE_GENERATION_CONFLICT"].includes(error?.code)) {
+        throw new AppError(409, "BRANCH_MOVED", "The branch or repository changed while the revert was being prepared. Refresh and retry.", {cause:error.message});
+      }
+      throw error;
+    }
+
+    // This point is after the adapter has committed its journal. A lost response
+    // is recovered on retry by locating the operation trailer above.
+    await stage("afterRefPublication", {operationId, branch, target, commitSha:revertSha, generation:published.generation});
+    const refresh = await refreshRevertWorktree(root, branch, revertSha);
+    return {
+      branch, revertedCommit:target, revertCommit:revertSha, parentCommit:parents[1],
+      operationId, generation:published.generation, replayed:false, ...refresh
+    };
+  } finally {
+    await fs.rm(temporaryDirectory, {recursive:true, force:true}).catch(()=>{});
   }
-  const revertedBy = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
-  return {branch, revertedCommit: target, revertCommit: revertedBy, parentCommit: parents[1]};
+}
+
+async function refreshRevertWorktree(root, branch, head) {
+  try {
+    const status = (await git(root, ["status", "--porcelain"])).stdout.trim();
+    if (status) {
+      return {
+        worktreeSynced:false,
+        worktreeSyncWarning:"The revert was published, but the worktree has uncommitted changes and was left untouched."
+      };
+    }
+    await git(root, ["checkout", "--quiet", branch]);
+    await git(root, ["reset", "--hard", head]);
+    return {worktreeSynced:true};
+  } catch {
+    return {
+      worktreeSynced:false,
+      worktreeSyncWarning:"The revert was published, but the checked-out worktree needs a refresh before another worktree-based operation."
+    };
+  }
 }
 
 export async function diffBranches(id, sourceRef, targetRef) {

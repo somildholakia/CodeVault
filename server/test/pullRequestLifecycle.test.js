@@ -58,6 +58,7 @@ function staleClaim(extra = {}) {
     mergeSourceSha: sourceSha,
     mergeTargetSha: targetSha,
     mergeClaimedBy: "user1",
+    mergeOperationId: "prmerge-fixture-operation-001",
     ...extra
   };
 }
@@ -90,6 +91,7 @@ test("claims an open pull request exactly once and persists the immutable merge 
   assert.equal(claim.mergeSourceSha, sourceSha);
   assert.equal(claim.mergeTargetSha, targetSha);
   assert.equal(claim.mergeClaimedBy, "user1");
+  assert.match(claim.mergeOperationId,/^[A-Za-z0-9_-]{8,128}$/);
 });
 
 test("completes only a claimed merge and clears its recovery snapshot atomically", async () => {
@@ -106,6 +108,7 @@ test("completes only a claimed merge and clears its recovery snapshot atomically
   assert.equal("mergeSourceSha" in completed, false);
   assert.equal("mergeTargetSha" in completed, false);
   assert.equal("mergeClaimedBy" in completed, false);
+  assert.equal("mergeOperationId" in completed, false);
   await assert.rejects(
     () => completePullRequestMerge("pr1", {mergeCommit: "d".repeat(40)}, model),
     error => error.code === "PULL_REQUEST_STATE_CHANGED"
@@ -125,6 +128,7 @@ test("releases a failed pre-Git merge claim and clears its snapshot", async () =
   assert.equal("mergeSourceSha" in released, false);
   assert.equal("mergeTargetSha" in released, false);
   assert.equal("mergeClaimedBy" in released, false);
+  assert.equal("mergeOperationId" in released, false);
   assert.equal(model.records.get("done").status, "merged");
 });
 
@@ -138,7 +142,8 @@ test("finalizes a Git-completed merge after a process crash", async () => {
         sourceBranch: "feature/recovery",
         targetBranch: "main",
         sourceSha,
-        targetSha
+        targetSha,
+        operationId: "prmerge-fixture-operation-001"
       });
       return {state: "completed",mergeCommit:mergedSha};
     },
@@ -169,6 +174,7 @@ test("reopens only when Git proves the merge did not occur", async () => {
   assert.equal("mergeStartedAt" in reopened, false);
   assert.equal("mergeSourceSha" in reopened, false);
   assert.equal("mergeTargetSha" in reopened, false);
+  assert.equal("mergeOperationId" in reopened, false);
 });
 
 test("preserves a merge claim when Git refs are ambiguous", async () => {

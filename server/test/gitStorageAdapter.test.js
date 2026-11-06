@@ -450,3 +450,76 @@ test("file commits refresh a clean checked-out branch for existing worktree-base
  assert.equal(git(root,["show","HEAD:src/active-branch.txt"]),"line one\nline two");
  assert.equal(git(root,["status","--porcelain","--untracked-files=all"]),"");
 });
+
+
+test("merge ref transactions verify source pins and reject missing commit objects",async()=>{
+ const storage=path.join(temp,"merge-source-guard-storage"),root=path.join(storage,id);
+ const initial=await makeWorkingRepository(root);
+ git(root,["branch","feature/source",initial]);
+ const source=git(root,["rev-parse","refs/heads/feature/source"]),tree=git(root,["rev-parse",initial+"^{tree}"]);
+ const merge=git(root,["commit-tree",tree,"-p",initial,"-p",source,"-m","Adapter merge fixture"],{
+  GIT_AUTHOR_NAME:"Adapter Test",GIT_AUTHOR_EMAIL:"adapter-test@codevault.local",GIT_COMMITTER_NAME:"Adapter Test",GIT_COMMITTER_EMAIL:"adapter-test@codevault.local"
+ });
+ const store=adapter(storage);
+ await assert.rejects(()=>store.compareAndSwapRef({
+  repositoryId:id,ref:"refs/heads/main",expectedObjectId:initial,newObjectId:merge,
+  expectedRefs:[{ref:"refs/heads/feature/source",expectedObjectId:"f".repeat(40)}],
+  expectedGeneration:0,operationId:"adapter-merge-guard-01",fencingToken:1
+ }),e=>e.code==="STORAGE_REF_CONFLICT");
+ assert.equal(await store.readRef({repositoryId:id,ref:"refs/heads/main"}),initial);
+ await assert.rejects(()=>store.compareAndSwapRef({
+  repositoryId:id,ref:"refs/heads/main",expectedObjectId:initial,newObjectId:"e".repeat(40),
+  expectedGeneration:0,operationId:"adapter-missing-object-01",fencingToken:1
+ }),e=>e.code==="GIT_OBJECT_MISSING");
+});
+
+test("source movement before adapter publication fails the atomic source verify",async()=>{
+ const storage=path.join(temp,"merge-source-race-storage"),root=path.join(storage,id),initial=await makeWorkingRepository(root);
+ git(root,["branch","feature/source",initial]);
+ const source=git(root,["rev-parse","refs/heads/feature/source"]),tree=git(root,["rev-parse",initial+"^{tree}"]),moved=nextCommit(root,source,"Move source");
+ const merge=git(root,["commit-tree",tree,"-p",initial,"-p",source,"-m","Pinned source merge"],{
+  GIT_AUTHOR_NAME:"Adapter Test",GIT_AUTHOR_EMAIL:"adapter-test@codevault.local",GIT_COMMITTER_NAME:"Adapter Test",GIT_COMMITTER_EMAIL:"adapter-test@codevault.local"
+ });
+ const store=adapter(storage);
+ await assert.rejects(()=>store.compareAndSwapRef({
+  repositoryId:id,ref:"refs/heads/main",expectedObjectId:initial,newObjectId:merge,
+  expectedRefs:[{ref:"refs/heads/feature/source",expectedObjectId:source}],expectedGeneration:0,
+  operationId:"adapter-source-race-001",fencingToken:1,
+  beforeRefPublication:async()=>git(root,["update-ref","refs/heads/feature/source",moved])
+ }),e=>e.code==="STORAGE_REF_CONFLICT");
+ assert.equal(await store.readRef({repositoryId:id,ref:"refs/heads/main"}),initial);
+ assert.equal(await store.readRef({repositoryId:id,ref:"refs/heads/feature/source"}),moved);
+});
+
+test("ambiguous mixed ref state after preparation blocks further adapter writes",async()=>{
+ const storage=path.join(temp,"merge-ambiguous-storage"),root=path.join(storage,id),initial=await makeWorkingRepository(root);
+ const candidate=nextCommit(root,initial,"Merge candidate"),other=nextCommit(root,initial,"Out-of-band movement"),store=adapter(storage);
+ await assert.rejects(()=>store.compareAndSwapRef({
+  repositoryId:id,ref:"refs/heads/main",expectedObjectId:initial,newObjectId:candidate,
+  expectedGeneration:0,operationId:"adapter-ambiguous-001",fencingToken:1,
+  beforeRefPublication:async()=>git(root,["update-ref","refs/heads/main",other])
+ }),e=>e.code==="STORAGE_RECOVERY_REQUIRED");
+ await assert.rejects(()=>store.getGeneration({repositoryId:id}),e=>e.code==="STORAGE_RECOVERY_REQUIRED");
+ assert.equal(await store.readRef({repositoryId:id,ref:"refs/heads/main"}),other);
+});
+
+test("concurrent merge ref publications against one generation have one winner",async()=>{
+ const storage=path.join(temp,"concurrent-merge-storage"),root=path.join(storage,id),initial=await makeWorkingRepository(root);
+ git(root,["branch","feature/source",initial]);
+ const source=git(root,["rev-parse","refs/heads/feature/source"]),tree=git(root,["rev-parse",initial+"^{tree}"]);
+ const create=msg=>git(root,["commit-tree",tree,"-p",initial,"-p",source,"-m",msg],{
+  GIT_AUTHOR_NAME:"Adapter Test",GIT_AUTHOR_EMAIL:"adapter-test@codevault.local",GIT_COMMITTER_NAME:"Adapter Test",GIT_COMMITTER_EMAIL:"adapter-test@codevault.local"
+ });
+ const candidates=[create("Concurrent merge A"),create("Concurrent merge B")],lock=createSharedLock(),left=adapter(storage,lock),right=adapter(storage,lock);
+ const outcomes=await Promise.allSettled(candidates.map((sha,i)=>(i?right:left).compareAndSwapRef({
+  repositoryId:id,ref:"refs/heads/main",expectedObjectId:initial,newObjectId:sha,
+  expectedRefs:[{ref:"refs/heads/feature/source",expectedObjectId:source}],expectedGeneration:0,
+  operationId:"adapter-merge-race-"+(i+1).toString().padStart(4,"0"),fencingToken:1
+ })));
+ assert.equal(outcomes.filter(x=>x.status==="fulfilled").length,1);
+ assert.equal(outcomes.filter(x=>x.status==="rejected").length,1);
+ assert.equal(outcomes.find(x=>x.status==="rejected").reason.code,"STORAGE_GENERATION_CONFLICT");
+ const winner=await left.readRef({repositoryId:id,ref:"refs/heads/main"});
+ assert.ok(candidates.includes(winner));
+ assert.equal(git(root,["rev-list","--parents","-n","1",winner]).split(" ").slice(1).join(" "),initial+" "+source);
+});

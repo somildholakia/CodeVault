@@ -426,3 +426,24 @@ test("file commits preserve executable mode and reject symlink targets and paren
   error=>error.code==="SYMLINK_PATH_NOT_ALLOWED"
  );
 });
+
+
+test("file commits refresh a clean checked-out branch for existing worktree-based Git operations",async()=>{
+ const repositoryId="f".repeat(24);
+ await gitService.initRepository(
+  {_id:repositoryId,name:"active-worktree-refresh",description:"Active worktree refresh fixture"},
+  {addReadme:true,authorName:"Pipeline Test",authorEmail:"pipeline-test@codevault.local"}
+ );
+ const root=gitService.repositoryPath(repositoryId);
+ const initial=git(root,["rev-parse","HEAD"]);
+ const result=await gitService.commitFile(
+  repositoryId,"main","src/active-branch.js","export const active = true;\n",
+  "Commit on checked-out branch",
+  {displayName:"Pipeline Test",email:"pipeline-test@codevault.local"},
+  {expectedHead:initial}
+ );
+ assert.equal(result.worktreeSynced,true);
+ assert.equal(git(root,["rev-parse","HEAD"]),result.sha);
+ assert.equal(git(root,["show","src/active-branch.js"]),"export const active = true;");
+ assert.equal(git(root,["status","--porcelain","--untracked-files=all"]),"");
+});

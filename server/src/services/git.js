@@ -94,7 +94,28 @@ export async function inspectPullRequestMerge(id, claim = {}) {
   }
 }
 
-async function git(root,args){await assertRepositoryLease();try{const r=await execFileAsync("git",args,{cwd:root,timeout:20000,maxBuffer:4*1024*1024,windowsHide:true,env:{...process.env,GIT_TERMINAL_PROMPT:"0",GIT_CONFIG_NOSYSTEM:"1"}});await assertRepositoryLease();return {stdout:String(r.stdout||""),stderr:String(r.stderr||"")};}catch(e){if(e?.code==="REPOSITORY_LOCK_LOST"||e?.code==="REPOSITORY_LOCK_CONTEXT_MISMATCH")throw e;await assertRepositoryLease();const detail=[e.stderr,e.stdout].filter(Boolean).map(String).join("\n").trim();if(/not a git repository/i.test(detail))throw new AppError(404,"GIT_REPOSITORY_MISSING","Repository Git data is unavailable.");if(/already exists/i.test(detail))throw new AppError(409,"GIT_REF_EXISTS","A ref with that name already exists.");if(/CONFLICT|Automatic merge failed/i.test(detail))throw new AppError(409,"GIT_CONFLICT","Git could not merge these changes.",{message:detail.slice(0,12000)});throw new AppError(400,"GIT_OPERATION_FAILED",(detail||"Git could not complete the operation.").slice(0,700));}}
+async function git(root,args,extraEnv={}) {
+  await assertRepositoryLease();
+  try {
+    const result = await execFileAsync("git",args,{
+      cwd:root,
+      timeout:20000,
+      maxBuffer:4*1024*1024,
+      windowsHide:true,
+      env:{...process.env,GIT_TERMINAL_PROMPT:"0",GIT_CONFIG_NOSYSTEM:"1",...extraEnv}
+    });
+    await assertRepositoryLease();
+    return {stdout:String(result.stdout||""),stderr:String(result.stderr||"")};
+  } catch (error) {
+    if (error?.code==="REPOSITORY_LOCK_LOST"||error?.code==="REPOSITORY_LOCK_CONTEXT_MISMATCH") throw error;
+    await assertRepositoryLease();
+    const detail=[error.stderr,error.stdout].filter(Boolean).map(String).join("\n").trim();
+    if (/not a git repository/i.test(detail)) throw new AppError(404,"GIT_REPOSITORY_MISSING","Repository Git data is unavailable.");
+    if (/already exists/i.test(detail)) throw new AppError(409,"GIT_REF_EXISTS","A ref with that name already exists.");
+    if (/CONFLICT|Automatic merge failed/i.test(detail)) throw new AppError(409,"GIT_CONFLICT","Git could not merge these changes.",{message:detail.slice(0,12000)});
+    throw new AppError(400,"GIT_OPERATION_FAILED",(detail||"Git could not complete the operation.").slice(0,700));
+  }
+}
 function safeRef(value){if(typeof value!=="string"||!value||value.length>160||value.startsWith("-")||!/^[A-Za-z0-9_./-]+$/.test(value)||value.includes("..")||value.includes("//")||value.endsWith("/")||value.endsWith("."))throw new AppError(400,"INVALID_GIT_REF","Invalid Git reference.");return value;}
 function safePath(value){if(typeof value!=="string"||!value||value.length>500||value.includes("\0")||value.includes("\\")||value.startsWith("/")||/^[A-Za-z]:/.test(value))throw new AppError(400,"INVALID_FILE_PATH","A safe repository-relative file path is required.");const parts=value.split("/");if(parts.some(p=>!p||p==="."||p===".."||p===".git"))throw new AppError(400,"INVALID_FILE_PATH","Absolute paths, parent traversal and Git internals are not accessible.");return parts.join("/");}
 export async function initRepository(repo,options={}){const root=repositoryPath(repo._id);await assertRepositoryLease(repo._id);await fs.mkdir(storage,{recursive:true,mode:0o750});await assertRepositoryLease(repo._id);await fs.mkdir(root,{recursive:false,mode:0o750});try{await git(root,["init","--initial-branch="+(options.branch||"main")]);await git(root,["config","user.name",String(options.authorName||"CodeVault Member").slice(0,80)]);await git(root,["config","user.email",String(options.authorEmail||"member@codevault.local").slice(0,254)]);if(options.addReadme!==false){await assertRepositoryLease(repo._id);await fs.writeFile(path.join(root,"README.md"),"# "+repo.name+"\n\n"+(repo.description||"A repository managed with CodeVault.")+"\n",{encoding:"utf8",mode:0o640});const templates={Node:"node_modules/\n.env\n.env.*\ndist/\ncoverage/\n",Python:"__pycache__/\n*.py[cod]\n.venv/\n.env\n",Java:"*.class\ntarget/\n.idea/\n",VisualStudioCode:".vscode/\n"};if(options.gitignore&&options.gitignore!=="None"&&templates[options.gitignore]){await assertRepositoryLease(repo._id);await fs.writeFile(path.join(root,".gitignore"),templates[options.gitignore],{encoding:"utf8",mode:0o640});}if(options.license==="MIT"){await assertRepositoryLease(repo._id);await fs.writeFile(path.join(root,"LICENSE"),"MIT License\n\nCopyright (c) "+new Date().getFullYear()+" "+String(options.authorName||"CodeVault contributor")+"\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the Software), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.\n",{encoding:"utf8",mode:0o640});}await assertRepositoryLease(repo._id);await git(root,["add","--all"]);await git(root,["commit","-m","Initial commit"]);}return root;}catch(e){try{await assertRepositoryLease(repo._id);await fs.rm(root,{recursive:true,force:true});}catch{}throw e;}}
@@ -402,7 +423,118 @@ export async function mergeBranches(id, source, target, expectedHead, expectedSo
     });
   }
 }
-export async function commitFile(id,branch,file,content,message,author){if(typeof content!=="string"||Buffer.byteLength(content,"utf8")>1048576)throw new AppError(413,"FILE_TOO_LARGE","A commit is limited to 1 MiB of text.");if(typeof message!=="string"||message.trim().length<3||message.trim().length>180)throw new AppError(400,"INVALID_COMMIT_MESSAGE","Commit message must be 3–180 characters.");const root=repositoryPath(id),b=safeRef(branch),p=safePath(file);await git(root,["checkout","--quiet",b]);await assertRepositoryLease(id);const target=path.resolve(root,p);if(!target.startsWith(root+path.sep))throw new AppError(400,"INVALID_FILE_PATH","The path is outside the repository.");let current=root;for(const part of p.split("/").slice(0,-1)){current=path.join(current,part);try{if((await fs.lstat(current)).isSymbolicLink())throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Editing through symbolic links is prohibited.");}catch(e){if(e.code==="ENOENT")break;throw e;}}try{if((await fs.lstat(target)).isSymbolicLink())throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Editing symbolic links is prohibited.");}catch(e){if(e.code!=="ENOENT")throw e;}await assertRepositoryLease(id);await fs.mkdir(path.dirname(target),{recursive:true,mode:0o750});await assertRepositoryLease(id);await fs.writeFile(target,content,{encoding:"utf8",mode:0o640});await git(root,["add","--",p]);await git(root,["-c","user.name="+String(author.displayName||author.username).slice(0,80),"-c","user.email="+String(author.email||"member@codevault.local").slice(0,254),"commit","-m",message.trim()]);return {sha:(await git(root,["rev-parse","HEAD"])).stdout.trim(),branch:b,path:p};}
+async function readTreeEntry(root,revision,file) {
+  const output=(await git(root,["--literal-pathspecs","ls-tree","-z",revision,"--",file])).stdout;
+  const records=output.split("\0").filter(Boolean);
+  if (!records.length) return null;
+  if (records.length!==1) throw new AppError(409,"AMBIGUOUS_FILE_PATH","The path resolves to multiple Git tree entries.");
+  const separator=records[0].indexOf("\t");
+  if (separator<0) throw new AppError(500,"GIT_TREE_PARSE_FAILED","Git returned an invalid tree entry.");
+  const [mode,type,sha]=records[0].slice(0,separator).split(" ");
+  if (!mode||!type||!sha) throw new AppError(500,"GIT_TREE_PARSE_FAILED","Git returned an incomplete tree entry.");
+  return {mode,type,sha};
+}
+
+export async function commitFile(id,branch,file,content,message,author={},options={}) {
+  if (typeof content!=="string"||Buffer.byteLength(content,"utf8")>1048576) {
+    throw new AppError(413,"FILE_TOO_LARGE","A commit is limited to 1 MiB of text.");
+  }
+  if (content.includes("\0")) {
+    throw new AppError(400,"INVALID_TEXT_CONTENT","The editor accepts plain text files, not binary content.");
+  }
+  if (typeof message!=="string"||message.trim().length<3||message.trim().length>180) {
+    throw new AppError(400,"INVALID_COMMIT_MESSAGE","Commit message must be 3–180 characters.");
+  }
+
+  const root=repositoryPath(id);
+  const targetBranch=safeRef(branch);
+  const targetPath=safePath(file);
+  await git(root,["check-ref-format","--branch",targetBranch]);
+
+  const expectedHeadInput=options.expectedHead;
+  if (expectedHeadInput!==undefined&&expectedHeadInput!==null&&
+      (typeof expectedHeadInput!=="string"||!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(expectedHeadInput))) {
+    throw new AppError(400,"INVALID_EXPECTED_HEAD","Provide the full current branch head SHA.");
+  }
+
+  const expectedGeneration=await gitStorageAdapter.getGeneration({repositoryId:String(id)});
+  const branchRef="refs/heads/"+targetBranch;
+  const currentHead=(await git(root,["rev-parse","--verify",branchRef+"^{commit}"])).stdout.trim();
+  if (expectedHeadInput&&currentHead!==expectedHeadInput.toLowerCase()) {
+    throw new AppError(409,"BRANCH_MOVED","The branch changed since the editor was opened. Refresh the file before committing.",{expectedHead:expectedHeadInput,actualHead:currentHead});
+  }
+
+  // Refuse edits through symlink, submodule or non-directory parent entries in the target commit.
+  let parent="";
+  for (const part of targetPath.split("/").slice(0,-1)) {
+    parent=parent?parent+"/"+part:part;
+    const entry=await readTreeEntry(root,currentHead,parent);
+    if (!entry) break;
+    if (entry.mode==="120000") throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Editing through symbolic links is prohibited.");
+    if (entry.type!=="tree") throw new AppError(400,"INVALID_FILE_PATH","Every parent path must be a repository directory.");
+  }
+  const existing=await readTreeEntry(root,currentHead,targetPath);
+  if (existing?.mode==="120000") throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Editing symbolic links is prohibited.");
+  if (existing&&(existing.type!=="blob"||!["100644","100755"].includes(existing.mode))) {
+    throw new AppError(400,"INVALID_FILE_PATH","Only regular repository text files can be edited.");
+  }
+  const fileMode=existing?.mode==="100755"?"100755":"100644";
+
+  const lease=await assertRepositoryLease(id);
+  const temporaryDirectory=await fs.mkdtemp(path.join(os.tmpdir(),"codevault-file-commit-"));
+  try {
+    const contentFile=path.join(temporaryDirectory,"content");
+    const indexFile=path.join(temporaryDirectory,"index");
+    await fs.writeFile(contentFile,content,{encoding:"utf8",mode:0o600});
+
+    // Persist only a blob object; do not touch the repository worktree or its shared index.
+    const blobSha=(await git(root,["hash-object","-w","--no-filters","--",contentFile])).stdout.trim();
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(blobSha)) {
+      throw new AppError(500,"GIT_BLOB_CREATION_FAILED","Git did not return a valid blob object ID.");
+    }
+
+    const indexEnv={GIT_INDEX_FILE:indexFile};
+    await git(root,["read-tree",currentHead],indexEnv);
+    await git(root,["update-index","--add","--cacheinfo",fileMode,blobSha,targetPath],indexEnv);
+    const treeSha=(await git(root,["write-tree"],indexEnv)).stdout.trim();
+
+    const cleanIdentity=(value,fallback,max)=>String(value||fallback).replace(/[\r\n\0]/g," ").trim().slice(0,max)||fallback;
+    const authorName=cleanIdentity(author.displayName||author.username,"CodeVault Member",80);
+    const authorEmail=cleanIdentity(author.email,"member@codevault.local",254);
+    const commitSha=(await git(root,["commit-tree",treeSha,"-p",currentHead,"-m",message.trim()],{
+      GIT_AUTHOR_NAME:authorName,
+      GIT_AUTHOR_EMAIL:authorEmail,
+      GIT_COMMITTER_NAME:authorName,
+      GIT_COMMITTER_EMAIL:authorEmail
+    })).stdout.trim();
+
+    const commitParents=(await git(root,["rev-list","--parents","-n","1",commitSha])).stdout.trim().split(" ").slice(1);
+    if (!commitParents.includes(currentHead)) {
+      throw new AppError(500,"INVALID_FILE_COMMIT","The generated commit does not have the expected parent.");
+    }
+
+    try {
+      const published=await gitStorageAdapter.compareAndSwapRef({
+        repositoryId:String(id),
+        ref:branchRef,
+        expectedObjectId:currentHead,
+        newObjectId:commitSha,
+        expectedGeneration,
+        operationId:randomUUID(),
+        fencingToken:lease?.fence||0
+      });
+      return {sha:commitSha,branch:targetBranch,path:targetPath,parentSha:currentHead,generation:published.generation};
+    } catch (error) {
+      if (["STORAGE_REF_CONFLICT","STORAGE_GENERATION_CONFLICT"].includes(error?.code)) {
+        throw new AppError(409,"BRANCH_MOVED","The branch or repository changed while the commit was being prepared. Refresh and retry.",{cause:error.message});
+      }
+      throw error;
+    }
+  } finally {
+    await fs.rm(temporaryDirectory,{recursive:true,force:true}).catch(()=>{});
+  }
+}
+
 export async function diffCommit(id,commitSha){if(!/^[a-f0-9]{7,40}$/i.test(commitSha))throw new AppError(400,"INVALID_COMMIT","Invalid commit identifier.");return (await git(repositoryPath(id),["show","--no-ext-diff","--format=","--stat","--patch","--unified=3",commitSha])).stdout.slice(0,300000);}
 
 

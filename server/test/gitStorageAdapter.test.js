@@ -505,8 +505,9 @@ test("ambiguous mixed ref state after preparation blocks further adapter writes"
 
 test("concurrent merge ref publications against one generation have one winner",async()=>{
  const storage=path.join(temp,"concurrent-merge-storage"),root=path.join(storage,id),initial=await makeWorkingRepository(root);
- git(root,["branch","feature/source",initial]);
- const source=git(root,["rev-parse","refs/heads/feature/source"]),tree=git(root,["rev-parse",initial+"^{tree}"]);
+ const source=nextCommit(root,initial,"Source branch commit");
+ git(root,["branch","feature/source",source]);
+ const tree=git(root,["rev-parse",source+"^{tree}"]);
  const create=msg=>git(root,["commit-tree",tree,"-p",initial,"-p",source,"-m",msg],{
   GIT_AUTHOR_NAME:"Adapter Test",GIT_AUTHOR_EMAIL:"adapter-test@codevault.local",GIT_COMMITTER_NAME:"Adapter Test",GIT_COMMITTER_EMAIL:"adapter-test@codevault.local"
  });

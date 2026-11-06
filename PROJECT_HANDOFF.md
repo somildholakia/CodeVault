@@ -1,6 +1,6 @@
 # CodeVault — continuation handoff
 
-Last verified: 2026-11-03 (Asia/Kolkata)
+Last verified: 2026-11-06 (Asia/Kolkata)
 
 ## Canonical project state
 
@@ -10,7 +10,7 @@ Last verified: 2026-11-03 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Latest application-code checkpoint: `a5710c1ac8511eb9a02483ce641fb0a88103755f` (provider-facing local Git adapter and contract tests). Latest docs checkpoint before this handoff update: `66d4c8386a85c7af993980e795072bed47ac90a0`. Re-fetch the branch head before editing.
+- Latest application-code checkpoint: `a4465a9c35759f4685b0b9b06c80aa6e45b1474b` (adapter-backed file commits, checked-out worktree refresh and Git clean-filter support). Latest verified branch HEAD before this handoff update: `3ab82e2c86c05eef9baabccd83c64f1b08ba5e8e` (includes four new regression tests). Re-fetch the branch head before editing.
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change — portable Git backup and local restore
@@ -33,17 +33,32 @@ Checkpoint `8279b56` — verified bundle downloads plus a safe one-command local
 This is a manual portable recovery path only. It does not schedule backups or store them off-site automatically; the downloaded bundle must be stored securely outside the Render service.
 
 
+## Latest completed change — file commits through the Git storage adapter
+
+Application-code checkpoint: `a4465a9c35759f4685b0b9b06c80aa6e45b1474b`; verified branch HEAD before this documentation update: `3ab82e2c86c05eef9baabccd83c64f1b08ba5e8e`.
+
+- Replaced the file-commit path that checked out a branch, wrote into the shared worktree, staged a file and ran `git commit`.
+- New file commits write a blob with `git hash-object -w --path=<repo-relative-path>`, applying the repository's configured clean filters without changing the shared index or worktree.
+- A temporary `GIT_INDEX_FILE` is initialized from the pinned branch head, updated with the new blob and written as a tree. `git commit-tree` creates a single-parent commit from that exact head.
+- The service verifies the parent, then publishes the new branch head through `gitStorageAdapter.compareAndSwapRef`, using the expected old SHA, adapter generation, random operation ID and current MongoDB lease fencing token. Ref/generation conflicts become a safe `BRANCH_MOVED` response.
+- The route accepts an optional full `expectedHead`; callers that submit the editor's original head receive a conflict instead of silently committing against a changed branch.
+- The service refuses edits to symlink paths, paths through symlink parents, submodules and non-regular target modes. Existing executable-file mode is preserved.
+- When the target is already checked out, the service rejects a dirty worktree before publication and refreshes that clean checkout after the CAS. This keeps existing native-Git revert and conflict-resolution paths consistent. Non-active branches are updated without switching the shared checkout.
+- Added regression coverage for temporary-index isolation, stale editor-head rejection, executable mode, symlink target/parent rejection, active worktree refresh and `.gitattributes` text normalization.
+- No remote storage service was provisioned, no deployment or production setting was changed, and the production Git-write gate remains disabled.
+
 ## Latest verified CI
 
-Both GitHub Actions workflows passed against implementation-equivalent commit `ae4619274b0689fbec17b9cd64e33f90979420fb`, including application-code checkpoint `a5710c1ac8511eb9a02483ce641fb0a88103755f`:
+Latest GitHub Actions run against feature-branch HEAD `3ab82e2c86c05eef9baabccd83c64f1b08ba5e8e` (application-code checkpoint `a4465a9c35759f4685b0b9b06c80aa6e45b1474b)):
 
-- Push CI #319: https://github.com/somildholakia/CodeVault/actions/runs/41577215316 — passed.
-- PR CI #320: https://github.com/somildholakia/CodeVault/actions/runs/41577220736 — passed.
-- Backend tests: 120 passed, 0 failed.
-- Product website tests: 7 passed, 0 failed.
-- Frontend production build and backend JavaScript syntax validation: passed.
+- CodeVault CI run 42216703723: https://github.com/somildholakia/CodeVault/actions/runs/42216703723 — passed.
+- Backend Git engine: 124 passed, 0 failed.
+- Product website: 7 passed, 0 failed.
+- Frontend production build: passed.
+- Backend JavaScript syntax validation: passed.
+- Vercel – codevault and Vercel – codevault-site status contexts: both success for this checkpoint.
 
-Later changes to README, architecture documentation and this handoff are documentation-only. Separate Vercel status contexts report `build-rate-limit`; these are external deployment-check failures, not GitHub Actions failures.
+The CI run includes the file-commit adapter migration and its new regression coverage. Earlier CI failures were used to correct worktree synchronization and a test assertion; this final run is fully green.
 
 ## Latest completed change — local Git storage adapter increment
 
@@ -108,6 +123,11 @@ For full feature inventory and local setup details, see `README.md`.
 - Existing PR CI #274 passed on the preceding restore-utility checkpoint (109 backend tests, 7 website tests, frontend build and syntax checks). Current Vercel status contexts on that checkpoint report `build-rate-limit` failures; those are external deployment checks, not GitHub Actions CI failures. Re-check current checks before the next implementation.
 
 ## Next recommended engineering task
+
+Continue the adapter migration with **single-parent commit reverts**. Keep the current ref pinned, compute the inverse tree in an isolated sandbox/index, create the revert commit object, and publish it with expected-head / generation compare-and-swap. Preserve the existing behavior for root commits, merge commits, unrelated commits, stale heads and conflict responses. Add tests for interruption before object write, after object persistence, after journal preparation and after ref publication, including idempotent retry/recovery. Then migrate merge and annotated-tag writes to the same adapter boundary. Add adapter sidecar-state cleanup to repository deletion and keep expanding the shared contract tests.
+
+Do not enable production Git writes while this is only a local adapter. Shared durable storage or a dedicated Git storage service, distributed fencing verified against that actual provider, full Git + MongoDB backup retention/restore drills, and independent security review remain rollout gates. Keep provider selection, paid infrastructure and deployment behind explicit approval.
+
 
 Continue migrating existing Git mutation paths to the adapter while preserving current API behavior. Start with file commits using a Git-object pipeline (`hash-object`, `mktree`, `commit-tree`) followed by expected-head CAS, and add crash-injection tests around object persistence, journal preparation and ref publication. Then migrate merge/revert/tag paths carefully. Add sidecar state cleanup to repository deletion and expand adapter contract tests. Do not expose the adapter as a public API or enable production writes yet. Keep remote service/provider selection and deployment behind explicit approval.
 

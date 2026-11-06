@@ -836,7 +836,8 @@ export async function revertCommit(id, branchName, commitSha, expectedHead, auth
         fencingToken:lease?.fence || 0,
         operationPayload:{type:"single-parent-revert",branch,target,expectedHead:current,payloadHash},
         beforePublish:async()=>stage("afterJournalPreparation", {operationId, branch, target, commitSha:revertSha}),
-        beforeRefPublication:async()=>stage("beforeRefPublication", {operationId, branch, target, commitSha:revertSha})
+        beforeRefPublication:async()=>stage("beforeRefPublication", {operationId, branch, target, commitSha:revertSha}),
+        afterRefPublication:async()=>stage("afterRefPublication", {operationId, branch, target, commitSha:revertSha})
       });
     } catch (error) {
       if (["STORAGE_REF_CONFLICT", "STORAGE_GENERATION_CONFLICT"].includes(error?.code)) {
@@ -845,9 +846,8 @@ export async function revertCommit(id, branchName, commitSha, expectedHead, auth
       throw error;
     }
 
-    // This point is after the adapter has committed its journal. A lost response
-    // is recovered on retry by locating the operation trailer above.
-    await stage("afterRefPublication", {operationId, branch, target, commitSha:revertSha, generation:published.generation});
+    // Adapter publication completed; if the process died before journal finalization,
+    // getGeneration on the retry reconciles the prepared journal before replay lookup.
     const refresh = await refreshRevertWorktree(root, branch, revertSha);
     return {
       branch, revertedCommit:target, revertCommit:revertSha, parentCommit:parents[1],

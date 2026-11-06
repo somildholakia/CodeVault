@@ -194,7 +194,7 @@ test("adapter-backed revert fails closed after journal preparation and immediate
  }
 });
 
-test("adapter-backed revert retries after a response is lost immediately after publication without duplicating the commit",async()=>{
+test("adapter-backed revert recovers a process failure immediately after ref publication but before journal finalization",async()=>{
  const id=await makeRepo();
  const author={username:"testuser",displayName:"Test User",email:"test@codevault.local"};
  const created=await git.commitFile(id,"main","src/response-loss.js","export const responseLoss = true;\\n","Add response-loss fixture",author);
@@ -203,9 +203,19 @@ test("adapter-backed revert retries after a response is lost immediately after p
  await assert.rejects(()=>git.revertCommit(id,"main",created.sha,head,author,{operationId,failureAt:"afterRefPublication"}),/Injected revert failure at afterRefPublication/);
  const published=(await git.listBranches(id)).find(item=>item.name==="main").sha;
  assert.notEqual(published,head);
+ const stateDirectory=path.join(process.env.REPO_STORAGE_PATH,".codevault-state",id);
+ const journalFile=path.join(stateDirectory,"operations",operationId+".json");
+ const journalBeforeRetry=JSON.parse(await fs.readFile(journalFile,"utf8"));
+ const stateBeforeRetry=JSON.parse(await fs.readFile(path.join(stateDirectory,"state.json"),"utf8"));
+ assert.equal(journalBeforeRetry.status,"prepared");
+ assert.equal(stateBeforeRetry.generation,journalBeforeRetry.generationBefore);
+ assert.equal(await git.gitStorageAdapter.readRef({repositoryId:id,ref:"refs/heads/main"}),published);
  const retried=await git.revertCommit(id,"main",created.sha,head,author,{operationId});
  assert.equal(retried.revertCommit,published);
  assert.equal(retried.replayed,true);
+ const recovered=JSON.parse(await fs.readFile(journalFile,"utf8"));
+ assert.equal(recovered.status,"committed");
+ assert.equal(recovered.result.recovered,true);
  const matching=execFileSync("git",["log","--format=%H","--fixed-strings","--grep=CodeVault-Operation-Id: "+operationId,"refs/heads/main"],{cwd:git.repositoryPath(id),encoding:"utf8"}).trim().split(/\r?\n/).filter(Boolean);
  assert.equal(matching.length,1);
  assert.equal((await git.gitStorageAdapter.verifyRepository({repositoryId:id})).ok,true);

@@ -239,7 +239,7 @@ export function createLocalGitStorageAdapter(options={}){
   }
  }
 
- async function applyChangesUnlocked(id,root,input,changes,beforePublish,beforeRefPublication){
+ async function applyChangesUnlocked(id,root,input,changes,beforePublish,beforeRefPublication,afterRefPublication){
   const op=operationId(input.operationId);
   const expectedGeneration=input.expectedGeneration;
   if(!Number.isSafeInteger(expectedGeneration)||expectedGeneration<0)throw new AppError(400,"EXPECTED_GENERATION_REQUIRED","Provide the current repository generation.");
@@ -317,6 +317,9 @@ export function createLocalGitStorageAdapter(options={}){
    throw new AppError(503,"STORAGE_RECOVERY_REQUIRED","Git refs changed during an interrupted operation. Writes are blocked pending operator reconciliation.");
   }
 
+  // A simulated/real process interruption here leaves a prepared journal and
+  // an already-published ref. The next request must reconcile it by operation ID.
+  if(afterRefPublication)await afterRefPublication();
   const result={operationId:op,generation:state.generation+1,changes,recovered:false};
   await atomicWriteJson(statePath(id),{generation:result.generation,fence:Math.max(state.fence,leaseFence),refsDigest:await refsDigestUnlocked(root)});
   prepared.status="committed";
@@ -363,7 +366,7 @@ export function createLocalGitStorageAdapter(options={}){
     const changes=[{ref,expectedObjectId:expected,newObjectId:target}];
     return applyChangesUnlocked(id,repositoryPath(id),{
      ...input,fencingToken:input.fencingToken??lease?.fence??0
-    },changes,input.beforePublish,input.beforeRefPublication);
+    },changes,input.beforePublish,input.beforeRefPublication,input.afterRefPublication);
    });
   },
   async exportBundle({repositoryId:id,maxSizeMb}){

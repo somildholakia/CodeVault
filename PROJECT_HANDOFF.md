@@ -168,11 +168,9 @@ For full feature inventory and local setup details, see `README.md`.
 - This checkpoint is documentation/design only: no application code, provider, bucket, paid plan, secret, production config or deployment was changed.
 - Existing PR CI #274 passed on the preceding restore-utility checkpoint (109 backend tests, 7 website tests, frontend build and syntax checks). Current Vercel status contexts on that checkpoint report `build-rate-limit` failures; those are external deployment checks, not GitHub Actions CI failures. Re-check current checks before the next implementation.
 
-## Next recommended engineering task
+## Historical continuation note
 
-Continue the adapter migration with **single-parent commit reverts**. First inspect the current revert implementation, route contract, branch-protection checks, repository lease/fencing behavior and adapter journal semantics. Keep the target ref pinned; compute the inverse tree in an isolated temporary index/sandbox; create the revert commit object; verify its parent and tree; and publish it with expected-head / repository-generation compare-and-swap. Preserve existing behavior for root commits, merge commits (including mainline selection), unrelated commits, stale heads and conflict responses. Add deterministic failure-injection tests for interruption before object write, after object persistence, after journal preparation, immediately before ref publication and immediately after ref publication. Verify retry/idempotency and recovery at every boundary.
-
-After revert migration, migrate merge and annotated-tag mutations to the adapter, add adapter sidecar-state cleanup to repository deletion, and expand contract tests. Keep API behavior backward compatible and keep all implementation on `feat/global-issue-tracker`.
+The earlier next-task recommendation to migrate single-parent reverts is complete and superseded by the current merge-publication checkpoint below. The merge adapter migration is implemented on `feat/global-issue-tracker`; the next ordered engineering milestone is annotated-tag creation/deletion through the adapter. Do not repeat the merge migration unless fresh inspection finds a regression.
 
 Do not enable production Git writes while this is only a local adapter. Shared durable storage or a dedicated Git storage service, provider-specific distributed fencing and crash-recovery tests, full Git + MongoDB backup retention/restore drills, and independent security review remain rollout gates. Keep provider selection, paid infrastructure and deployment behind explicit approval.
 
@@ -202,7 +200,7 @@ Test commit: \`d574cfe3e9c42345fe7ba539b6adce5d99d6ff02\`
 - Target expected SHA, source expected SHA, repository generation and MongoDB fencing token are enforced. Branch target publication occurs only through \`gitStorageAdapter.compareAndSwapRef\`.
 - Stable operation IDs are bound to the payload and included in commit trailers/journals. PR merge claims persist an operation ID alongside reviewed source and target SHAs. PR recovery reconciles pending adapter journals before Git ancestry checks.
 - Tests added for pre-object failure, post-object persistence, prepared-journal and pre-publication failures, post-publication interruption/recovery, same-ID retry, duplicate prevention, source/target movement, conflict resolution, missing Git objects, mixed/ambiguous journal state and concurrent CAS writers.
-- CI verification on the final docs-inclusive branch HEAD is pending. Do not treat prior workflow runs as verification for this checkpoint.
+- Initial PR workflow run #354 failed during backend syntax validation because of an extra `)` in `server/test/gitMergeAdapter.test.js`; the test loop was corrected in `3166cf97b7f6cf07f1c21e07cd61e2ba862cc475`. The replacement PR workflow is being run; do not treat the earlier failed run as verification.
 - Production Git writes remain disabled. The local adapter is not a shared durable provider; no production deployment settings, paid infrastructure or main branch changes were made. PR #1 remains open and unmerged.
 
 Next ordered milestones:

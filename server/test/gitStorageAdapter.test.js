@@ -335,3 +335,94 @@ test("deletes a ref only when its expected object ID matches",async()=>{
  assert.equal(deleted.generation,generation+1);
  assert.equal(await gitStorage.readRef({repositoryId:id,ref:"refs/heads/feature/delete-me"}),null);
 });
+
+
+test("file commits use a temporary Git index and publish through the adapter without switching the worktree",async()=>{
+ const repositoryId="c".repeat(24);
+ await gitService.initRepository(
+  {_id:repositoryId,name:"object-pipeline",description:"File commit pipeline fixture"},
+  {addReadme:true,authorName:"Pipeline Test",authorEmail:"pipeline-test@codevault.local"}
+ );
+ const root=gitService.repositoryPath(repositoryId);
+ const worktreeHead=git(root,["rev-parse","HEAD"]);
+ await gitService.createBranch(repositoryId,"feature/object-commit","main");
+ const branchHead=git(root,["rev-parse","refs/heads/feature/object-commit"]);
+ const result=await gitService.commitFile(
+  repositoryId,"feature/object-commit","nested/created.txt","Hello from the object pipeline\n",
+  "Add file through object pipeline",
+  {displayName:"Pipeline Test",email:"pipeline-test@codevault.local"},
+  {expectedHead:branchHead}
+ );
+ assert.equal(result.parentSha,branchHead);
+ assert.equal(result.generation,2);
+ assert.equal(git(root,["rev-parse","HEAD"]),worktreeHead);
+ assert.equal(git(root,["branch","--show-current"]),"main");
+ assert.equal(git(root,["rev-parse","refs/heads/main"]),worktreeHead);
+ assert.equal(git(root,["show","refs/heads/feature/object-commit:nested/created.txt"]),"Hello from the object pipeline");
+ await assert.rejects(()=>fs.access(path.join(root,"nested","created.txt")),error=>error.code==="ENOENT");
+ assert.equal(git(root,["status","--porcelain"]),"");
+});
+
+test("file commits reject stale editor heads without moving the branch",async()=>{
+ const repositoryId="d".repeat(24);
+ await gitService.initRepository(
+  {_id:repositoryId,name:"stale-file-commit",description:"Stale commit fixture"},
+  {addReadme:true,authorName:"Pipeline Test",authorEmail:"pipeline-test@codevault.local"}
+ );
+ const root=gitService.repositoryPath(repositoryId);
+ const staleHead=git(root,["rev-parse","refs/heads/main"]);
+ const first=await gitService.commitFile(
+  repositoryId,"main","README.md","# First update\n","First file update",
+  {displayName:"Pipeline Test",email:"pipeline-test@codevault.local"},
+  {expectedHead:staleHead}
+ );
+ await assert.rejects(
+  ()=>gitService.commitFile(
+   repositoryId,"main","README.md","# Stale update\n","Stale file update",
+   {displayName:"Pipeline Test",email:"pipeline-test@codevault.local"},
+   {expectedHead:staleHead}
+  ),
+  error=>error.code==="BRANCH_MOVED"
+ );
+ assert.equal(git(root,["rev-parse","refs/heads/main"]),first.sha);
+ assert.equal(git(root,["show","refs/heads/main:README.md"]),"# First update");
+});
+
+test("file commits preserve executable mode and reject symlink targets and parents",async()=>{
+ const repositoryId="e".repeat(24);
+ await gitService.initRepository(
+  {_id:repositoryId,name:"file-mode-safety",description:"File mode fixture"},
+  {addReadme:true,authorName:"Pipeline Test",authorEmail:"pipeline-test@codevault.local"}
+ );
+ const root=gitService.repositoryPath(repositoryId);
+ const executable=path.join(root,"tool.sh");
+ await fs.writeFile(executable,"#!/bin/sh\necho old\n",{encoding:"utf8",mode:0o755});
+ await fs.chmod(executable,0o755);
+ git(root,["add","tool.sh"]);
+ git(root,["commit","-m","Add executable fixture"]);
+ await fs.symlink("tool.sh",path.join(root,"link.sh"));
+ git(root,["add","link.sh"]);
+ git(root,["commit","-m","Add symlink fixture"]);
+ const head=git(root,["rev-parse","refs/heads/main"]);
+ const updated=await gitService.commitFile(
+  repositoryId,"main","tool.sh","#!/bin/sh\necho new\n","Update executable fixture",
+  {displayName:"Pipeline Test",email:"pipeline-test@codevault.local"},
+  {expectedHead:head}
+ );
+ const mode=git(root,["ls-tree",updated.sha,"--","tool.sh"]).split(" ")[0];
+ assert.equal(mode,"100755");
+ await assert.rejects(
+  ()=>gitService.commitFile(
+   repositoryId,"main","link.sh","replacement","Replace symlink",
+   {displayName:"Pipeline Test",email:"pipeline-test@codevault.local"}
+  ),
+  error=>error.code==="SYMLINK_PATH_NOT_ALLOWED"
+ );
+ await assert.rejects(
+  ()=>gitService.commitFile(
+   repositoryId,"main","link.sh/child.txt","replacement","Write through symlink",
+   {displayName:"Pipeline Test",email:"pipeline-test@codevault.local"}
+  ),
+  error=>error.code==="SYMLINK_PATH_NOT_ALLOWED"
+ );
+});

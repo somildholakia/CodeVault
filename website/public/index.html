@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1e8">
+  <meta name="description" content="CodeVault brings real Git history, team issues, pull-request reviews, branch protection and dependency checks into one clear workspace.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="CodeVault — Git, in good company.">
+  <meta property="og:description" content="A clearer workspace for building together. Explore CodeVault and download the source.">
+  <meta property="og:url" content="https://github.com/somildholakia/CodeVault">
+  <title>CodeVault — Git, in good company.</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./main.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#" aria-label="CodeVault home">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>codevault<span class="brand-period">.</span></span>
+      </a>
+      <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="main-nav">
+        <span></span><span></span>
+      </button>
+      <nav id="main-nav" class="main-nav" aria-label="Main navigation">
+        <a href="#why">Why CodeVault</a>
+        <a href="#workflows">What it does</a>
+        <a href="#how">How it works</a>
+        <a href="#download">Download</a>
+      </nav>
+      <a class="header-cta" href="https://github.com/somildholakia/CodeVault" target="_blank" rel="noreferrer">
+        View repository <span aria-hidden="true">↗</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero section-wrap">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="eyebrow-dot"></span> THE WORKSPACE FOR PEOPLE WHO BUILD</div>
+        <h1>Good code.<br><em>Clear history.</em><br>Better together<span class="period">.</span></h1>
+        <p class="hero-intro">CodeVault gives your team one thoughtful place for real Git work — from the first branch to the final review.</p>
+        <div class="hero-actions">
+          <a class="button button-dark" href="#download">Get CodeVault <span aria-hidden="true">↗</span></a>
+          <a class="button button-text" href="#workflows">Take a look around <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="hero-footnote">
+          <span class="tiny-star" aria-hidden="true">✳</span>
+          Made for student teams, side projects and the people learning by shipping.
+        </div>
+      </div>
+
+      <div class="hero-art" aria-label="Illustration of the CodeVault repository workspace">
+        <div class="art-sticker sticker-lime">REAL GIT<br>UNDER THE HOOD</div>
+        <div class="art-sticker sticker-coral">MAKE THE<br>HISTORY MAKE SENSE</div>
+        <div class="workspace-window">
+          <div class="window-top">
+            <div class="window-dots"><i></i><i></i><i></i></div>
+            <div class="window-title">codevault / orbit-notes</div>
+            <div class="window-live"><span></span> workspace</div>
+          </div>
+          <div class="workspace-body">
+            <aside class="mock-sidebar">
+              <div class="mock-side-logo"><span class="mini-mark">C</span><b>orbit-notes</b></div>
+              <div class="mock-side-label">REPOSITORY</div>
+              <div class="mock-side-item active"><span class="side-glyph">⌘</span> Overview</div>
+              <div class="mock-side-item"><span class="side-glyph">⑂</span> Branches</div>
+              <div class="mock-side-item"><span class="side-glyph">◷</span> Commits</div>
+              <div class="mock-side-item"><span class="side-glyph">◎</span> Issues <span class="side-count">4</span></div>
+              <div class="mock-side-item"><span class="side-glyph">⇄</span> Reviews</div>
+              <div class="mock-side-bottom"><span class="avatar-dot">S</span><span><b>Sam Taylor</b><small>Developer</small></span></div>
+            </aside>
+            <div class="mock-main">
+              <div class="mock-breadcrumb">REPOSITORY <span>/</span> OVERVIEW</div>
+              <div class="mock-heading"><div><h2>Orbit notes</h2><p>A little space for big ideas.</p></div><span class="visibility">PRIVATE</span></div>
+              <div class="mock-stats">
+                <div><small>BRANCHES</small><b>06</b><span class="stat-mark mark-blue">↗</span></div>
+                <div><small>OPEN ISSUES</small><b>04</b><span class="stat-mark mark-orange">＋</span></div>
+                <div><small>CONTRIBUTORS</small><b>03</b><span class="stat-mark mark-lime">✳</span></div>
+              </div>
+              <div class="mock-graph-card">
+                <div class="mock-graph-head"><b>Recent history</b><span>VIEW GRAPH ↗</span></div>
+                <svg class="mock-graph" viewBox="0 0 420 176" role="img" aria-label="Commit graph showing two branches joining">
+                  <path d="M42 23 V54 C42 76 89 78 89 99 V151" class="graph-line graph-line-blue"/>
+                  <path d="M42 54 C42 77 89 78 89 99" class="graph-line graph-line-orange"/>
+                  <path d="M42 54 C42 77 156 78 156 99 V151" class="graph-line graph-line-violet"/>
+                  <path d="M89 99 H156" class="graph-line graph-line-muted"/>
+                  <circle cx="42" cy="23" r="6" class="node-blue"/>
+                  <circle cx="42" cy="54" r="6" class="node-blue"/>
+                  <circle cx="89" cy="99" r="6" class="node-orange"/>
+                  <circle cx="156" cy="99" r="6" class="node-violet"/>
+                  <circle cx="89" cy="151" r="6" class="node-blue"/>
+                  <circle cx="156" cy="151" r="6" class="node-violet"/>
+                  <text x="66" y="27">polish dashboard</text>
+                  <text x="66" y="58">merge: issue filters</text>
+                  <text x="112" y="91">feature/search</text>
+                  <text x="177" y="103">add review notes</text>
+                  <text x="111" y="155">main</text>
+                  <text x="177" y="155">feature/notes</text>
+                </svg>
+                <div class="mock-commit-row"><span class="commit-avatar avatar-orange">J</span><span><b>Refine empty states</b><small>Jamie · 18 minutes ago</small></span><code>c2a91f0</code></div>
+              </div>
+              <div class="mock-bottom-row"><span class="mock-check">✓</span> Your changes are accounted for <span>ALL SYSTEMS GO</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="art-caption"><span>ILLUSTRATIVE PREVIEW · SAMPLE CONTENT</span><span>SCROLL TO EXPLORE ↓</span></div>
+      </div>
+    </section>
+
+    <section class="proof-strip" aria-label="CodeVault principles">
+      <div class="proof-inner">
+        <span>REAL GIT REPOSITORIES</span><i>✳</i><span>BUILT FOR COLLABORATION</span><i>✳</i><span>HISTORY YOU CAN FOLLOW</span><i>✳</i><span>NO MADE-UP METRICS</span>
+      </div>
+    </section>
+
+    <section id="why" class="intro-section section-wrap">
+      <div class="section-kicker"><span>01</span> WHY CODEVAULT</div>
+      <div class="intro-grid">
+        <h2>Git is powerful.<br><em>Working together</em><br>should feel simpler.</h2>
+        <div class="intro-aside">
+          <p>Branches, commits, issues and reviews are all part of the same story. CodeVault brings that story into view, so your team can spend less time hunting for context and more time making things.</p>
+          <a class="underlined-link" href="#workflows">See what comes together <span aria-hidden="true">↘</span></a>
+          <div class="hand-note"><span>✳</span> Less tab-hopping.<br>More building.</div>
+        </div>
+      </div>
+      <div class="principle-row">
+        <article><div class="principle-number">01</div><h3>Know what changed.</h3><p>Read the commit, inspect the diff and trace a file back to the people and decisions behind it.</p></article>
+        <article><div class="principle-number">02</div><h3>Keep the team close.</h3><p>Put repository work, issue discussions and pull-request reviews in the same shared space.</p></article>
+        <article><div class="principle-number">03</div><h3>Protect the important bits.</h3><p>Use branch rules and review gates to make the safe path the obvious path.</p></article>
+      </div>
+    </section>
+
+    <section id="workflows" class="workflows-section">
+      <div class="section-wrap">
+        <div class="section-kicker section-kicker-light"><span>02</span> THE TOOLKIT</div>
+        <div class="workflows-heading">
+          <h2>Everything has<br>a place<span class="period">.</span></h2>
+          <p>Not a pile of disconnected features. A practical set of tools that work together around your repository.</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card feature-blue">
+            <div class="feature-top"><span>01 / HISTORY</span><span class="feature-symbol">⌁</span></div>
+            <div class="feature-art feature-art-history">
+              <div class="history-chip"><b>main</b><span>latest</span></div>
+              <div class="history-rail"><i></i><i></i><i></i><i></i><b></b></div>
+              <div class="history-card"><span class="history-dot"></span><b>Merge branch</b><small>3 commits ahead</small></div>
+            </div>
+            <h3>See the whole story.</h3>
+            <p>Explore a visual commit graph, compare snapshots, inspect diffs and follow file history with line-level blame.</p>
+            <div class="feature-tags"><span>COMMIT DAG</span><span>FILE HISTORY</span><span>DIFFS</span></div>
+          </article>
+
+          <article class="feature-card feature-lime">
+            <div class="feature-top"><span>02 / COLLABORATION</span><span class="feature-symbol">↗</span></div>
+            <div class="feature-art feature-art-issues">
+              <div class="issue-mini-head"><b>Issue inbox</b><span>4 open</span></div>
+              <div class="issue-mini-row"><i class="issue-pill pill-red"></i><span>Fix sign-in redirect</span><small>HIGH</small></div>
+              <div class="issue-mini-row"><i class="issue-pill pill-blue"></i><span>Update empty state</span><small>MED</small></div>
+              <div class="issue-mini-row"><i class="issue-pill pill-violet"></i><span>Add export notes</span><small>LOW</small></div>
+              <div class="issue-mini-footer"><span class="avatar-stack"><i>J</i><i>M</i><i>S</i></span><span>one team, shared context</span></div>
+            </div>
+            <h3>Keep the conversation with the work.</h3>
+            <p>Track issues across your accessible repositories, comment in context and review proposed changes together.</p>
+            <div class="feature-tags"><span>GLOBAL ISSUES</span><span>PULL REQUESTS</span><span>REVIEWS</span></div>
+          </article>
+
+          <article class="feature-card feature-coral">
+            <div class="feature-top"><span>03 / GUARDRAILS</span><span class="feature-symbol">✳</span></div>
+            <div class="feature-art feature-art-rules">
+              <div class="rule-head"><span>BRANCH RULE</span><b>main</b></div>
+              <div class="rule-line"><span class="rule-check">✓</span> Pull request required</div>
+              <div class="rule-line"><span class="rule-check">✓</span> 2 independent approvals</div>
+              <div class="rule-line"><span class="rule-check">✓</span> Resolve all conversations</div>
+              <div class="rule-foot"><span></span> protected by policy</div>
+            </div>
+            <h3>Make safer changes by default.</h3>
+            <p>Set exact or wildcard branch rules, require independent approvals and keep unresolved review threads from slipping through.</p>
+            <div class="feature-tags"><span>BRANCH PROTECTION</span><span>STALE APPROVALS</span></div>
+          </article>
+
+          <article class="feature-card feature-violet">
+            <div class="feature-top"><span>04 / DEPENDENCIES</span><span class="feature-symbol">⌕</span></div>
+            <div class="feature-art feature-art-security">
+              <div class="scan-heading"><span>DEPENDENCY CHECK</span><b>OSV</b></div>
+              <div class="scan-package"><span>react</span><code>18.3.1</code><b class="safe-tag">CHECKED</b></div>
+              <div class="scan-package"><span>express</span><code>4.21.2</code><b class="safe-tag">CHECKED</b></div>
+              <div class="scan-package"><span>demo-lib</span><code>1.2.0</code><b class="review-tag">REVIEW</b></div>
+              <div class="scan-note">Exact versions. Clear findings.</div>
+            </div>
+            <h3>Know what you depend on.</h3>
+            <p>Inventory resolved npm and pinned Python packages, then check exact versions against the OSV advisory database.</p>
+            <div class="feature-tags"><span>NPM LOCKFILES</span><span>PYTHON PINS</span><span>OSV</span></div>
+          </article>
+        </div>
+        <p class="feature-disclaimer"><span>↳</span> Dependency checks only scan exact resolved or pinned versions. Unsupported ranges are never presented as a clean scan.</p>
+      </div>
+    </section>
+
+    <section class="history-section section-wrap">
+      <div class="section-kicker"><span>03</span> HISTORY YOU CAN FOLLOW</div>
+      <div class="history-layout">
+        <div class="history-copy">
+          <h2>Not just a list<br>of commits.<br><em>A map of progress.</em></h2>
+          <p>Branches move. Ideas split. Work comes back together. CodeVault makes those relationships visible, with a graph you can explore one commit at a time.</p>
+          <a class="button button-dark" href="https://github.com/somildholakia/CodeVault" target="_blank" rel="noreferrer">Explore the code <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="big-graph-card" aria-label="Illustrative Git history graph">
+          <div class="big-graph-top"><span>REPOSITORY / COMMIT GRAPH</span><span class="graph-legend"><i class="legend-blue"></i> main <i class="legend-orange"></i> feature/ui</span></div>
+          <svg class="big-graph" viewBox="0 0 620 330" role="img" aria-label="Main and feature branches diverge and merge">
+            <path d="M84 28 V82 C84 108 156 109 156 143 V292" class="big-edge edge-blue"/>
+            <path d="M84 82 C84 108 156 109 156 143" class="big-edge edge-orange"/>
+            <path d="M84 82 C84 110 270 108 270 143 V194 C270 220 356 220 356 248 V292" class="big-edge edge-violet"/>
+            <path d="M156 143 H270" class="big-edge edge-muted"/>
+            <path d="M270 194 H356" class="big-edge edge-orange"/>
+            <path d="M156 248 C156 275 356 275 356 292" class="big-edge edge-blue"/>
+            <circle cx="84" cy="28" r="8" class="big-node node-main"/>
+            <circle cx="84" cy="82" r="8" class="big-node node-main"/>
+            <circle cx="156" cy="143" r="8" class="big-node node-main"/>
+            <circle cx="270" cy="143" r="8" class="big-node node-feature"/>
+            <circle cx="270" cy="194" r="8" class="big-node node-feature"/>
+            <circle cx="356" cy="248" r="8" class="big-node node-feature"/>
+            <circle cx="156" cy="248" r="8" class="big-node node-main"/>
+            <circle cx="156" cy="292" r="8" class="big-node node-main"/>
+            <circle cx="356" cy="292" r="8" class="big-node node-feature"/>
+            <text x="111" y="32">Add project skeleton</text>
+            <text x="111" y="86">Build navigation</text>
+            <text x="184" y="139">Refine workspace</text>
+            <text x="298" y="139">Start feature branch</text>
+            <text x="298" y="190">Add issue inbox</text>
+            <text x="384" y="252">Review + iterate</text>
+            <text x="184" y="244">Merge improvements</text>
+            <text x="184" y="296">main</text>
+            <text x="384" y="296">feature/ui</text>
+          </svg>
+          <div class="graph-card-footer"><span class="graph-footer-icon">⌘</span><span><b>Every node has context.</b><small>Parents, branches, tags, diffs and snapshots.</small></span><span class="graph-arrow">↗</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="how" class="how-section">
+      <div class="section-wrap">
+        <div class="section-kicker"><span>04</span> GET STARTED</div>
+        <div class="how-heading"><h2>From download<br>to first commit.</h2><p>CodeVault is a web application you can run locally or deploy with your own services. The source is available right now.</p></div>
+        <div class="steps-grid">
+          <article><span class="step-no">01</span><div class="step-icon step-purple">↓</div><h3>Get the source</h3><p>Download the ZIP or tarball from the feature branch, or clone the repository.</p></article>
+          <article><span class="step-no">02</span><div class="step-icon step-orange">⌘</div><h3>Set up your stack</h3><p>Install Node.js, Git and MongoDB. Add your local environment values.</p></article>
+          <article><span class="step-no">03</span><div class="step-icon step-green">↗</div><h3>Start building</h3><p>Run the app, create a repository and invite your collaborators.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="download-section section-wrap">
+      <div class="download-panel">
+        <div class="download-copy">
+          <div class="section-kicker section-kicker-light"><span>05</span> GET YOUR COPY</div>
+          <h2>Take the source.<br><em>Make it yours.</em></h2>
+          <p>CodeVault is available as a public source repository. Grab the current feature-branch snapshot, explore the code or follow the project as it grows.</p>
+          <div class="download-actions">
+            <a class="button button-lime" href="https://github.com/somildholakia/CodeVault/archive/refs/heads/feat/global-issue-tracker.zip" download>Download ZIP <span aria-hidden="true">↓</span></a>
+            <a class="button button-outline-light" href="https://github.com/somildholakia/CodeVault/archive/refs/heads/feat/global-issue-tracker.tar.gz">Download TAR.GZ <span aria-hidden="true">↓</span></a>
+          </div>
+          <div class="download-meta"><span class="download-pulse"></span> Current source · <code>feat/global-issue-tracker</code></div>
+        </div>
+        <div class="download-side">
+          <div class="download-file-art">
+            <div class="file-back"></div><div class="file-mid"></div>
+            <div class="file-front"><span class="file-mark">C</span><b>CodeVault</b><small>SOURCE PACKAGE</small><div class="file-lines"><i></i><i></i><i></i></div><span class="file-extension">.ZIP</span></div>
+            <div class="file-sticker">YOURS<br>TO BUILD</div>
+          </div>
+          <div class="download-links">
+            <a href="https://github.com/somildholakia/CodeVault" target="_blank" rel="noreferrer"><span>Browse source code</span><b>↗</b></a>
+            <a href="https://github.com/somildholakia/CodeVault/releases" target="_blank" rel="noreferrer"><span>Release notes & packaged builds</span><b>↗</b></a>
+          </div>
+        </div>
+      </div>
+
+      <div class="install-grid">
+        <div class="install-intro">
+          <span class="mono-label">PREFER THE TERMINAL?</span>
+          <h3>Clone it. Install it.<br>Get moving.</h3>
+          <p>For local development, start from the repository root. You’ll need Node.js 20.11+, Git 2.30+ and a MongoDB instance.</p>
+          <a class="underlined-link" href="https://github.com/somildholakia/CodeVault#local-setup" target="_blank" rel="noreferrer">Read the full setup guide <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="terminal-card">
+          <div class="terminal-top"><span><i></i><i></i><i></i></span><b>YOUR TERMINAL</b><button type="button" class="copy-button" data-copy="git clone https://github.com/somildholakia/CodeVault.git&#10;cd CodeVault&#10;cp .env.example .env&#10;npm install&#10;npm run dev" aria-label="Copy setup commands">COPY COMMANDS <span aria-hidden="true">▣</span></button></div>
+          <pre><span class="terminal-muted"># 1. Get the project</span>
+<span class="terminal-green">$</span> git clone https://github.com/somildholakia/CodeVault.git
+<span class="terminal-green">$</span> cd CodeVault
+
+<span class="terminal-muted"># 2. Configure your local environment</span>
+<span class="terminal-green">$</span> cp .env.example .env
+<span class="terminal-muted"># Add MongoDB URI + a random JWT secret to .env</span>
+
+<span class="terminal-muted"># 3. Install and run</span>
+<span class="terminal-green">$</span> npm install
+<span class="terminal-green">$</span> npm run dev</pre>
+          <div class="terminal-foot"><span>WEB APP</span><span>LOCAL DEVELOPMENT</span><span>NO DESKTOP INSTALLER YET</span></div>
+        </div>
+      </div>
+      <div class="download-truth"><span class="truth-icon">i</span><p><b>One important note:</b> the download is the web application source code, not a Windows, macOS or Linux desktop installer. Packaged desktop builds have not been published. You can run the web app locally or deploy it using the included project configuration.</p></div>
+    </section>
+
+    <section class="faq-section section-wrap">
+      <div class="section-kicker"><span>06</span> GOOD TO KNOW</div>
+      <div class="faq-layout">
+        <div><h2>A few things<br>you might be<br><em>wondering.</em></h2><p>Clear answers, no fine-print maze.</p></div>
+        <div class="faq-list">
+          <details><summary>Is CodeVault a desktop app? <span>＋</span></summary><p>CodeVault is a browser-based web application. The public download currently contains its source code; there are no packaged Windows, macOS or Linux installers yet.</p></details>
+          <details><summary>Can I run it on my own machine? <span>＋</span></summary><p>Yes. Install Node.js 20.11 or newer, Git 2.30 or newer and MongoDB, configure the root environment file, then run <code>npm install</code> and <code>npm run dev</code>.</p></details>
+          <details><summary>Does it use real Git? <span>＋</span></summary><p>Yes. Repository operations use the Git CLI and real Git data. MongoDB stores application metadata such as accounts, collaborators, issues and review records.</p></details>
+          <details><summary>Is it ready for production hosting? <span>＋</span></summary><p>The project includes deployment configuration, but production use needs MongoDB, a persistent backend disk for Git repositories, secure environment variables, backups and additional operational hardening. See the README before hosting important source code.</p></details>
+          <details><summary>Where do I report a bug or suggest something? <span>＋</span></summary><p>Open an issue in the public GitHub repository. Include steps to reproduce, expected behaviour and any relevant logs, while keeping secrets out of the report.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing-section">
+      <div class="closing-inner section-wrap">
+        <div class="closing-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <p>MAKE THE NEXT GOOD THING.</p>
+        <h2>Your work deserves<br>a better home<span>.</span></h2>
+        <a class="button button-dark" href="https://github.com/somildholakia/CodeVault" target="_blank" rel="noreferrer">Meet CodeVault on GitHub <span aria-hidden="true">↗</span></a>
+        <div class="closing-doodle" aria-hidden="true">✳</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <a class="brand" href="#"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span>codevault<span class="brand-period">.</span></span></a>
+      <span class="footer-note">A clearer way to build together.</span>
+      <div class="footer-links"><a href="https://github.com/somildholakia/CodeVault" target="_blank" rel="noreferrer">GitHub ↗</a><a href="https://github.com/somildholakia/CodeVault/actions" target="_blank" rel="noreferrer">Build checks ↗</a><a href="#download">Downloads ↑</a></div>
+      <small>© <span data-year>2026</span> CodeVault. Built with care.</small>
+    </div>
+  </footer>
+</body>
+</html>

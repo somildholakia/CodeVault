@@ -10,15 +10,123 @@ import issueRoutes from "./routes/issues.js";
 import analyticsRoutes from "./routes/analytics.js";
 import activityRoutes from "./routes/activity.js";
 import pullRequestRoutes from "./routes/pullRequests.js";
-const app=express();
-const configuredOrigins=(process.env.CLIENT_ORIGIN||"http://localhost:5173").split(",").map(x=>x.trim()).filter(Boolean);
-app.disable("x-powered-by");app.set("trust proxy",1);app.use(helmet());
-app.use(cors({origin(origin,cb){if(!origin||configuredOrigins.includes(origin))return cb(null,true);return cb(new Error("Origin is not allowed by CORS."));},credentials:true,methods:["GET","POST","PATCH","PUT","DELETE","OPTIONS"],allowedHeaders:["Content-Type","Authorization","X-Requested-With"]}));
-app.use((req,res,next)=>{const safe=["GET","HEAD","OPTIONS"].includes(req.method),origin=req.get("origin");if(!safe&&origin&&!configuredOrigins.includes(origin))return res.status(403).json({error:{code:"ORIGIN_NOT_ALLOWED",message:"This request origin is not allowed."}});next();});
-app.use(express.json({limit:"1mb",strict:true}));app.use(cookieParser());app.use("/api/auth",rateLimit({windowMs:900000,limit:30,standardHeaders:"draft-7",legacyHeaders:false}));
-app.get("/api/health",(_req,res)=>res.status(200).json({status:"ok",service:"codevault-api",database:mongoose.connection.readyState===1?"connected":"disconnected",repositoryStorage:process.env.NODE_ENV!=="production"||process.env.REPO_STORAGE_DURABLE==="true"?"configured":"needs-persistent-disk",timestamp:new Date().toISOString()}));
-app.use("/api",(req,res,next)=>{if(req.path==="/health")return next();if(mongoose.connection.readyState!==1)return res.status(503).json({error:{code:"DATABASE_UNAVAILABLE",message:"Database is not connected. Configure MONGODB_URI and retry."}});next();});
-app.use("/api/auth",authRoutes);app.use("/api/repositories",repositoryRoutes);app.use("/api",issueRoutes);app.use("/api/analytics",analyticsRoutes);app.use("/api/activity",activityRoutes);app.use("/api/pull-requests",pullRequestRoutes);
-app.use((_req,res)=>res.status(404).json({error:{code:"NOT_FOUND",message:"The requested endpoint does not exist."}}));
-app.use((err,_req,res,_next)=>{const status=Number(err.statusCode||err.status||500);if(status>=500)console.error("Request failed:",err.message);res.status(status).json({error:{code:err.code||"INTERNAL_ERROR",message:status>=500&&status!==503?"The server could not complete this request.":err.message,...(err.details?{details:err.details}:{})}});});
+import {sessionCookieName} from "./middleware/auth.js";
+import {hasBearerAuthorization,validateUnsafeRequestOrigin} from "./utils/requestSecurity.js";
+import {isDurableRepositoryStorageConfigured} from "./utils/repositoryStorage.js";
+
+const app = express();
+const configuredOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map(value => value.trim())
+  .filter(Boolean);
+
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use(helmet());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || configuredOrigins.includes(origin)) return callback(null, true);
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+}));
+app.use(express.json({limit: "1mb", strict: true}));
+app.use(cookieParser());
+app.use((req, res, next) => {
+  const violation = validateUnsafeRequestOrigin({
+    method: req.method,
+    origin: req.get("origin"),
+    allowedOrigins: configuredOrigins,
+    hasSessionCookie: Boolean(req.cookies?.[sessionCookieName()]),
+    hasBearerToken: hasBearerAuthorization(req.get("authorization"))
+  });
+
+  if (!violation) return next();
+  return res.status(403).json({error: violation});
+});
+
+app.use("/api/auth", rateLimit({
+  windowMs: 900000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false
+}));
+
+// Keep credential-guessing and disposable-account creation below the broader
+// authenticated-session endpoint budget. Each route has its own IP bucket.
+function authAttemptLimiter(limit, message) {
+  return rateLimit({
+    windowMs: 900000,
+    limit,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    handler(_req, res) {
+      res.status(429).json({
+        error: {
+          code: "AUTH_RATE_LIMITED",
+          message
+        }
+      });
+    }
+  });
+}
+
+app.use("/api/auth/login", authAttemptLimiter(
+  10,
+  "Too many sign-in attempts. Wait 15 minutes before trying again."
+));
+app.use("/api/auth/register", authAttemptLimiter(
+  5,
+  "Too many account creation attempts. Wait 15 minutes before trying again."
+));
+
+app.get("/api/health", (_req, res) => res.status(200).json({
+  status: "ok",
+  service: "codevault-api",
+  database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+  repositoryStorage: isDurableRepositoryStorageConfigured() ? "configured" : "needs-persistent-disk",
+  timestamp: new Date().toISOString()
+}));
+
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health") return next();
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      error: {
+        code: "DATABASE_UNAVAILABLE",
+        message: "Database is not connected. Configure MONGODB_URI and retry."
+      }
+    });
+  }
+  next();
+});
+
+app.use("/api/auth", authRoutes);
+app.use("/api/repositories", repositoryRoutes);
+app.use("/api", issueRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/activity", activityRoutes);
+app.use("/api/pull-requests", pullRequestRoutes);
+app.use((_req, res) => res.status(404).json({
+  error: {
+    code: "NOT_FOUND",
+    message: "The requested endpoint does not exist."
+  }
+}));
+app.use((err, _req, res, _next) => {
+  const status = Number(err.statusCode || err.status || 500);
+  if (status >= 500) console.error("Request failed:", err.message);
+  res.status(status).json({
+    error: {
+      code: err.code || "INTERNAL_ERROR",
+      message: status >= 500 && status !== 503
+        ? "The server could not complete this request."
+        : err.message,
+      ...(err.details ? {details: err.details} : {})
+    }
+  });
+});
+
 export default app;

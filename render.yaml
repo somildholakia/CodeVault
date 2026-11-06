@@ -15,6 +15,8 @@ services:
         value: /var/data/codevault/repos
       - key: REPO_STORAGE_DURABLE
         value: "false"
+      - key: COOKIE_SAME_SITE
+        value: none
       - key: JWT_SECRET
         sync: false
       - key: MONGODB_URI

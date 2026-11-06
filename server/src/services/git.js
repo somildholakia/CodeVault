@@ -27,6 +27,7 @@ export async function inspectPullRequestMerge(id, claim = {}) {
 
   let sourceBranch, targetBranch, sourceObject, targetObject;
   try {
+    await gitStorageAdapter.getGeneration({repositoryId:String(id)});
     sourceBranch = safeRef(claim.sourceBranch);
     targetBranch = safeRef(claim.targetBranch);
     const [sourceRef, targetRef] = await Promise.all([
@@ -276,6 +277,104 @@ async function runMergeInSandbox(id, sourceRef, targetRef) {
   }
 }
 
+function mergeAuthor(author={}) {
+ const name=String(author.displayName||author.username||"CodeVault Member").replace(/[\r\n\0]/g," ").trim().slice(0,80)||"CodeVault Member";
+ const email=String(author.email||"member@codevault.local").replace(/[\r\n\0]/g," ").trim().slice(0,254)||"member@codevault.local";
+ return {name,email};
+}
+function mergeIdentity(id,details,options={}) {
+ const actor=mergeAuthor(options.author);
+ const payload={repositoryId:String(id),operationType:options.operationType||"branch-merge",mode:details.mode,source:details.source,target:details.target,sourceSha:details.sourceSha,targetSha:details.targetSha,author:actor,...(options.pullRequestId?{pullRequestId:String(options.pullRequestId)}:{}),...(details.extra||{})};
+ const payloadHash=createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+ const operationId=options.operationId||"merge-"+payloadHash.slice(0,48);
+ if(typeof operationId!=="string"||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId))throw new AppError(400,"INVALID_OPERATION_ID","Provide an operation ID containing 8–128 letters, numbers, underscores or hyphens.");
+ return {operationId,payloadHash,payload,actor};
+}
+async function mergeStage(options,stage,details={}) {
+ if(typeof options.onStage==="function")await options.onStage(stage,details);
+ if(options.failureAt===stage)throw new Error("Injected merge failure at "+stage+".");
+}
+async function mergeIsAncestor(root,ancestor,descendant) {
+ await assertRepositoryLease();
+ try {
+  await execFileAsync("git",["merge-base","--is-ancestor",ancestor,descendant],{cwd:root,timeout:20000,maxBuffer:1024*1024,windowsHide:true,env:{...process.env,GIT_TERMINAL_PROMPT:"0",GIT_CONFIG_NOSYSTEM:"1"}});
+  await assertRepositoryLease();return true;
+ }catch(error) {
+  await assertRepositoryLease();if(error.code===1)return false;
+  const detail=[error.stderr,error.stdout].filter(Boolean).map(String).join("\n").trim();
+  throw new AppError(409,"GIT_ANCESTRY_CHECK_FAILED",(detail||"Git could not validate merge ancestry.").slice(0,700));
+ }
+}
+async function findPublishedMerge(root,targetRef,identity,targetSha,sourceSha) {
+ const previous=(await git(root,["log","-1","--format=%H","--fixed-strings","--grep=CodeVault-Operation-Id: "+identity.operationId,targetRef])).stdout.trim();
+ if(!previous)return null;
+ const [bodyResult,parentsResult]=await Promise.all([git(root,["show","-s","--format=%B",previous]),git(root,["rev-list","--parents","-n","1",previous])]);
+ const parents=parentsResult.stdout.trim().split(" ").filter(Boolean).slice(1);
+ if(parents.length!==2||parents[0]!==targetSha||parents[1]!==sourceSha||!bodyResult.stdout.includes("CodeVault-Operation-Payload: "+identity.payloadHash))throw new AppError(409,"STORAGE_OPERATION_ID_REUSED","This operation ID was already used with a different merge request.");
+ return previous;
+}
+async function refreshMergeWorktree(root,target,mergeSha,pinnedTargetSha,switchToTarget=true) {
+ try {
+  const currentBranch=(await git(root,["symbolic-ref","--quiet","--short","HEAD"]).catch(()=>({stdout:""}))).stdout.trim();
+  if(!switchToTarget&&currentBranch!==target)return {worktreeSynced:true};
+  const currentHead=(await git(root,["rev-parse","--verify","refs/heads/"+target+"^{commit}"])).stdout.trim();
+  if(!(await mergeIsAncestor(root,mergeSha,currentHead)))return {worktreeSynced:false,worktreeSyncWarning:"The merge was published, but the target moved to a history that cannot safely refresh this worktree."};
+  if(currentBranch===target) {
+   const [staged,unstaged,untracked,unmerged]=await Promise.all([
+    git(root,["diff","--cached","--name-only",pinnedTargetSha,"--"]),
+    git(root,["diff","--name-only"]),git(root,["ls-files","--others","--exclude-standard"]),git(root,["ls-files","-u"])
+   ]);
+   if(staged.stdout.trim()||unstaged.stdout.trim()||untracked.stdout.trim()||unmerged.stdout.trim())return {worktreeSynced:false,worktreeSyncWarning:"The merge was published, but the worktree/index changed during preparation and was left untouched."};
+   await git(root,["reset","--hard",currentHead]);
+  } else {
+   const status=(await git(root,["status","--porcelain","--untracked-files=all"])).stdout.trim();
+   if(status)return {worktreeSynced:false,worktreeSyncWarning:"The merge was published, but the worktree contains local changes and was left untouched."};
+   await git(root,["checkout","--quiet",target]);await git(root,["reset","--hard",currentHead]);
+  }
+  return {worktreeSynced:true};
+ }catch{return {worktreeSynced:false,worktreeSyncWarning:"The merge was published, but the checked-out worktree needs a refresh before another worktree-based operation."};}
+}
+async function publishPreparedMerge(id,context) {
+ const {root,sandbox,source,target,sourceSha,targetSha,identity,expectedGeneration,operationType,mode,resolvedFiles=[],options={},switchWorktree=true}=context;
+ const {operationId,payloadHash,actor}=identity;
+ const treeSha=(await git(sandbox,["write-tree"])).stdout.trim();
+ if(!/^[a-f0-9]{40,64}$/i.test(treeSha))throw new AppError(500,"INVALID_MERGE_TREE","Git did not return a valid merge tree.");
+ const parentDates=await Promise.all([targetSha,sourceSha].map(async sha=>{
+  const value=(await git(root,["show","-s","--format=%cI",sha])).stdout.trim(),parsed=Date.parse(value);
+  if(Number.isNaN(parsed))throw new AppError(500,"MERGE_PARENT_DATE_INVALID","Git returned an invalid merge-parent timestamp.");
+  return parsed;
+ }));
+ const stableDate=new Date(Math.max(...parentDates)+1000).toISOString();
+ const message=["Merge branch '"+source+"' into "+target,"","CodeVault-Operation-Id: "+operationId,"CodeVault-Operation-Payload: "+payloadHash].join("\n");
+ const commitSha=(await git(sandbox,["-c","commit.gpgsign=false","commit-tree",treeSha,"-p",targetSha,"-p",sourceSha,"-m",message],{GIT_AUTHOR_NAME:actor.name,GIT_AUTHOR_EMAIL:actor.email,GIT_COMMITTER_NAME:actor.name,GIT_COMMITTER_EMAIL:actor.email,GIT_AUTHOR_DATE:stableDate,GIT_COMMITTER_DATE:stableDate})).stdout.trim();
+ const parents=(await git(sandbox,["rev-list","--parents","-n","1",commitSha])).stdout.trim().split(" ").filter(Boolean).slice(1);
+ const generatedTree=(await git(sandbox,["show","-s","--format=%T",commitSha])).stdout.trim();
+ const body=(await git(sandbox,["show","-s","--format=%B",commitSha])).stdout;
+ if(parents.length!==2||parents[0]!==targetSha||parents[1]!==sourceSha||generatedTree!==treeSha||!body.includes("CodeVault-Operation-Id: "+operationId)||!body.includes("CodeVault-Operation-Payload: "+payloadHash))throw new AppError(500,"INVALID_MERGE_COMMIT","The generated merge commit failed parent, tree or operation-identity validation.");
+ const sandboxRef="refs/heads/codevault-merge-"+payloadHash.slice(0,40);
+ await git(sandbox,["update-ref",sandboxRef,commitSha]);
+ const imported=await gitStorageAdapter.importObjects({repositoryId:String(id),sourceRepositoryPath:sandbox,sourceRef:sandboxRef,expectedCommitSha:commitSha});
+ if(imported.commitSha!==commitSha||imported.verified!==true)throw new AppError(500,"MERGE_OBJECT_IMPORT_FAILED","The merge commit and its reachable objects were not verified in the primary object database.");
+ const importedParents=(await git(root,["rev-list","--parents","-n","1",commitSha])).stdout.trim().split(" ").filter(Boolean).slice(1);
+ if(importedParents.length!==2||importedParents[0]!==targetSha||importedParents[1]!==sourceSha)throw new AppError(500,"INVALID_MERGE_COMMIT","The imported merge commit does not have both pinned parents in the required order.");
+ await mergeStage(options,"afterObjectPersistence",{operationId,source,target,commitSha});
+ const lease=await assertRepositoryLease(id);let publication;
+ try {
+  publication=await gitStorageAdapter.compareAndSwapRef({
+   repositoryId:String(id),ref:"refs/heads/"+target,expectedObjectId:targetSha,newObjectId:commitSha,
+   expectedRefs:[{ref:"refs/heads/"+source,expectedObjectId:sourceSha}],expectedGeneration,operationId,fencingToken:lease?.fence||0,
+   operationPayload:{type:"two-parent-merge",operationType,mode,source,target,sourceSha,targetSha,payloadHash},
+   beforePublish:async()=>mergeStage(options,"afterJournalPreparation",{operationId,source,target,commitSha}),
+   beforeRefPublication:async()=>mergeStage(options,"beforeRefPublication",{operationId,source,target,commitSha}),
+   afterRefPublication:async()=>mergeStage(options,"afterRefPublication",{operationId,source,target,commitSha})
+  });
+ }catch(error){
+  if(["STORAGE_REF_CONFLICT","STORAGE_GENERATION_CONFLICT"].includes(error?.code))throw new AppError(409,"BRANCH_MOVED","A source or target branch moved while the merge was being prepared. Refresh and retry.",{cause:error.message});
+  throw error;
+ }
+ const refresh=await refreshMergeWorktree(root,target,commitSha,targetSha,switchWorktree);
+ return {merged:true,source,target,sourceSha,targetHead:commitSha,mergeCommit:commitSha,operationId,generation:publication.generation,replayed:false,resolvedFiles,...refresh};
+}
 export async function previewMerge(id,source,target){
   const root=repositoryPath(id),from=safeRef(source),into=safeRef(target);
   if(from===into)throw new AppError(400,"SAME_BRANCH","Choose different branches.");
@@ -295,134 +394,81 @@ export async function previewMerge(id,source,target){
   return {source:from,target:into,sourceSha:sourceSha.stdout.trim(),canMerge,files,conflicts,conflictFiles,targetHead:branches.find(b=>b.name===into)?.sha||null};
 }
 
-export async function resolveMergeConflicts(id, sourceRef, targetRef, expectedHead, expectedSourceSha, resolutions, author = {}) {
-  const root = repositoryPath(id);
-  const target = safeRef(targetRef);
-  const source = safeRef(sourceRef);
-  if (source === target) throw new AppError(400, "SAME_BRANCH", "Choose different branches.");
-  if (typeof expectedHead !== "string" || !/^[a-f0-9]{40}$/i.test(expectedHead) ||
-      typeof expectedSourceSha !== "string" || !/^[a-f0-9]{40}$/i.test(expectedSourceSha)) {
-    throw new AppError(400, "EXPECTED_HEAD_REQUIRED", "Refresh the merge preview and provide both current branch head SHAs.");
+export async function resolveMergeConflicts(id,sourceRef,targetRef,expectedHead,expectedSourceSha,resolutions,author={},options={}) {
+ const root=repositoryPath(id),target=safeRef(targetRef),source=safeRef(sourceRef),targetRefName="refs/heads/"+target,sourceRefName="refs/heads/"+source;
+ if(source===target)throw new AppError(400,"SAME_BRANCH","Choose different branches.");
+ if(typeof expectedHead!=="string"||!/^[a-f0-9]{40}$/i.test(expectedHead)||typeof expectedSourceSha!=="string"||!/^[a-f0-9]{40}$/i.test(expectedSourceSha))throw new AppError(400,"EXPECTED_HEAD_REQUIRED","Refresh the merge preview and provide both current branch head SHAs.");
+ if(!Array.isArray(resolutions)||resolutions.length>50)throw new AppError(400,"INVALID_RESOLUTIONS","Provide at most 50 file resolutions.");
+ const supplied=new Map();
+ for(const item of resolutions){
+  if(!item||typeof item.path!=="string")throw new AppError(400,"INVALID_RESOLUTIONS","Each resolution needs a repository-relative path.");
+  const file=safePath(item.path);if(supplied.has(file))throw new AppError(400,"DUPLICATE_RESOLUTION","A conflict file may be resolved only once.");
+  if(typeof item.delete!=="undefined"&&typeof item.delete!=="boolean")throw new AppError(400,"INVALID_RESOLUTIONS","The delete flag must be a boolean.");
+  if(!item.delete&&(typeof item.content!=="string"||Buffer.byteLength(item.content,"utf8")>1048576))throw new AppError(413,"FILE_TOO_LARGE","Each resolved text file must be at most 1 MiB.");
+  supplied.set(file,{content:item.content||"",delete:Boolean(item.delete)});
+ }
+ const normalized=[...supplied.entries()].map(([file,value])=>({path:file,content:value.content,delete:value.delete})).sort((a,b)=>a.path.localeCompare(b.path));
+ const resolutionPayloadHash=createHash("sha256").update(JSON.stringify(normalized)).digest("hex"),pinnedTarget=expectedHead.toLowerCase(),pinnedSource=expectedSourceSha.toLowerCase();
+ const identity=mergeIdentity(id,{mode:"conflict-resolution",source,target,sourceSha:pinnedSource,targetSha:pinnedTarget,extra:{resolutionPayloadHash}},{...options,author,operationType:options.operationType||"branch-merge-resolved"});
+ await gitStorageAdapter.getGeneration({repositoryId:String(id)});
+ const previous=await findPublishedMerge(root,targetRefName,identity,pinnedTarget,pinnedSource);
+ if(previous){const currentHead=(await git(root,["rev-parse","--verify",targetRefName+"^{commit}"])).stdout.trim();return {merged:true,source,target,sourceSha:pinnedSource,targetHead:currentHead,mergeCommit:previous,resolvedFiles:normalized.map(item=>item.path),operationId:identity.operationId,replayed:true};}
+ const [currentTarget,currentSource,status,currentBranch]=await Promise.all([
+  git(root,["rev-parse","--verify",targetRefName+"^{commit}"]),git(root,["rev-parse","--verify",sourceRefName+"^{commit}"]),git(root,["status","--porcelain"]),git(root,["symbolic-ref","--quiet","--short","HEAD"]).catch(()=>({stdout:""}))
+ ]);
+ const targetSha=currentTarget.stdout.trim(),sourceSha=currentSource.stdout.trim();
+ if(targetSha!==pinnedTarget||sourceSha!==pinnedSource)throw new AppError(409,"BRANCH_MOVED","A source or target branch moved since preview. Refresh the merge preview.");
+ if(status.stdout.trim())throw new AppError(409,"WORKTREE_NOT_CLEAN","The repository worktree has uncommitted changes. Save or discard them before resolving a merge.");
+ const expectedGeneration=await gitStorageAdapter.getGeneration({repositoryId:String(id)});
+ await mergeStage(options,"beforeObjectCreation",{operationId:identity.operationId,source,target,sourceSha,targetSha});
+ const sandbox=await createMergeSandbox(root,targetSha);
+ try{
+  let mergeError=null;try{await git(sandbox,["merge","--no-commit","--no-ff",sourceSha]);}catch(error){mergeError=error;}
+  const conflicts=(await git(sandbox,["diff","--name-only","--diff-filter=U"])).stdout.split(/\r?\n/).filter(Boolean).map(safePath);
+  if(mergeError&&conflicts.length===0)throw new AppError(409,"MERGE_CONFLICT","Git could not prepare the requested merge.",{message:mergeError.message});
+  if(conflicts.length!==supplied.size||conflicts.some(file=>!supplied.has(file)))throw new AppError(409,"CONFLICT_SET_CHANGED","The conflict set changed since preview. Refresh the preview and resolve every current conflict.",{conflicts});
+  const unsupported=await inspectConflictFiles(sandbox,conflicts),unsupportedFiles=unsupported.filter(item=>!item.canEdit).map(item=>item.path);
+  if(unsupportedFiles.length)throw new AppError(409,"UNSUPPORTED_CONFLICT","Some conflicts cannot be safely resolved in the text editor.",{files:unsupportedFiles});
+  for(const file of conflicts){
+   const resolution=supplied.get(file),targetPath=path.resolve(sandbox,file);
+   if(!targetPath.startsWith(sandbox+path.sep))throw new AppError(400,"INVALID_FILE_PATH","A conflict path is outside the repository.");
+   let cursor=sandbox;
+   for(const part of file.split("/").slice(0,-1)){cursor=path.join(cursor,part);try{const stat=await fs.lstat(cursor);if(stat.isSymbolicLink()||!stat.isDirectory())throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Resolving conflicts through symlinks is prohibited.");}catch(error){if(error.code!=="ENOENT")throw error;}}
+   if(resolution.delete)await fs.rm(targetPath,{force:true});
+   else{try{const stat=await fs.lstat(targetPath);if(stat.isSymbolicLink()||!stat.isFile())throw new AppError(400,"SYMLINK_PATH_NOT_ALLOWED","Resolving symlink conflicts is prohibited.");}catch(error){if(error.code!=="ENOENT")throw error;}await fs.mkdir(path.dirname(targetPath),{recursive:true,mode:0o750});await fs.writeFile(targetPath,resolution.content,{encoding:"utf8",mode:0o640});}
   }
-  if (!Array.isArray(resolutions) || resolutions.length > 50) throw new AppError(400, "INVALID_RESOLUTIONS", "Provide at most 50 file resolutions.");
-  const [currentTarget,currentSource,status] = await Promise.all([
-    git(root, ["rev-parse", "--verify", "refs/heads/" + target]),
-    git(root, ["rev-parse", "--verify", source + "^{commit}"]),
-    git(root, ["status", "--porcelain"])
-  ]);
-  const targetSha = currentTarget.stdout.trim();
-  const sourceSha = currentSource.stdout.trim();
-  if (targetSha !== expectedHead || sourceSha !== expectedSourceSha) throw new AppError(409, "BRANCH_MOVED", "A source or target branch moved since preview. Refresh the merge preview.");
-  if (status.stdout.trim()) throw new AppError(409, "WORKTREE_NOT_CLEAN", "The repository worktree has uncommitted changes. Save or discard them before resolving a merge.");
-  const supplied = new Map();
-  for (const item of resolutions) {
-    if (!item || typeof item.path !== "string") throw new AppError(400, "INVALID_RESOLUTIONS", "Each resolution needs a repository-relative path.");
-    const file = safePath(item.path);
-    if (supplied.has(file)) throw new AppError(400, "DUPLICATE_RESOLUTION", "A conflict file may be resolved only once.");
-    if (typeof item.delete !== "undefined" && typeof item.delete !== "boolean") throw new AppError(400, "INVALID_RESOLUTIONS", "The delete flag must be a boolean.");
-    if (!item.delete && (typeof item.content !== "string" || Buffer.byteLength(item.content, "utf8") > 1048576)) {
-      throw new AppError(413, "FILE_TOO_LARGE", "Each resolved text file must be at most 1 MiB.");
-    }
-    supplied.set(file, {content: item.content || "", delete: Boolean(item.delete)});
-  }
-  const sandbox = await createMergeSandbox(root, targetSha);
-  try {
-    let mergeError = null;
-    try { await git(sandbox, ["merge", "--no-commit", "--no-ff", sourceSha]); }
-    catch (error) { mergeError = error; }
-    const conflicts = (await git(sandbox, ["diff", "--name-only", "--diff-filter=U"])).stdout.split(/\r?\n/).filter(Boolean).map(safePath);
-    if (mergeError && conflicts.length === 0) throw mergeError;
-    if (conflicts.length !== supplied.size || conflicts.some(file => !supplied.has(file))) {
-      throw new AppError(409, "CONFLICT_SET_CHANGED", "The conflict set changed since preview. Refresh the merge preview and resolve every current conflict.", {conflicts});
-    }
-    const unsupported = await inspectConflictFiles(sandbox, conflicts);
-    const unsupportedFiles = unsupported.filter(item => !item.canEdit).map(item => item.path);
-    if (unsupportedFiles.length) throw new AppError(409, "UNSUPPORTED_CONFLICT", "Some conflicts cannot be safely resolved in the text editor.", {files: unsupportedFiles});
-    for (const file of conflicts) {
-      const resolution = supplied.get(file);
-      const targetPath = path.resolve(sandbox, file);
-      if (!targetPath.startsWith(sandbox + path.sep)) throw new AppError(400, "INVALID_FILE_PATH", "A conflict path is outside the repository.");
-      let cursor = sandbox;
-      for (const part of file.split("/").slice(0, -1)) {
-        cursor = path.join(cursor, part);
-        try {
-          const stat = await fs.lstat(cursor);
-          if (stat.isSymbolicLink() || !stat.isDirectory()) throw new AppError(400, "SYMLINK_PATH_NOT_ALLOWED", "Resolving conflicts through symlinks is prohibited.");
-        } catch (error) { if (error.code !== "ENOENT") throw error; }
-      }
-      if (resolution.delete) {
-        await fs.rm(targetPath, {force: true});
-      } else {
-        try {
-          const stat = await fs.lstat(targetPath);
-          if (stat.isSymbolicLink() || !stat.isFile()) throw new AppError(400, "SYMLINK_PATH_NOT_ALLOWED", "Resolving symlink conflicts is prohibited.");
-        } catch (error) { if (error.code !== "ENOENT") throw error; }
-        await fs.mkdir(path.dirname(targetPath), {recursive: true, mode: 0o750});
-        await fs.writeFile(targetPath, resolution.content, {encoding: "utf8", mode: 0o640});
-      }
-    }
-    await git(sandbox, ["add", "-A", "--", ...conflicts]);
-    const remaining = (await git(sandbox, ["diff", "--name-only", "--diff-filter=U"])).stdout.split(/\r?\n/).filter(Boolean);
-    if (remaining.length) throw new AppError(409, "UNRESOLVED_CONFLICTS", "Git still reports unresolved conflicts.", {conflicts: remaining});
-    const name = String(author.displayName || author.username || "CodeVault Member").slice(0, 80);
-    const email = String(author.email || "member@codevault.local").slice(0, 254);
-    await git(sandbox, ["-c", "user.name=" + name, "-c", "user.email=" + email, "commit", "--no-edit"]);
-    const mergeSha = (await git(sandbox, ["rev-parse", "HEAD"])).stdout.trim();
-    const parents = (await git(sandbox, ["rev-list", "--parents", "-n", "1", mergeSha])).stdout.trim().split(" ").slice(1);
-    if (!parents.includes(targetSha) || !parents.includes(sourceSha)) throw new AppError(500, "INVALID_MERGE_COMMIT", "The resulting commit does not contain both expected parents.");
-    // Merge commits created in the isolated clone live in its object database.
-    // Fetch the new commit into the main repository before advancing its branch ref.
-    await git(sandbox, ["update-ref", "refs/heads/codevault-merge-result", mergeSha]);
-    await git(root, ["fetch", "--no-tags", sandbox, "refs/heads/codevault-merge-result"]);
-    const importedSha = (await git(root, ["rev-parse", "FETCH_HEAD"])).stdout.trim();
-    if (importedSha !== mergeSha) throw new AppError(500, "MERGE_OBJECT_IMPORT_FAILED", "The resolved merge commit could not be imported into the repository.");
-    try { await git(root, ["update-ref", "refs/heads/" + target, mergeSha, targetSha]); }
-    catch (error) { throw new AppError(409, "BRANCH_MOVED", "The target branch moved while the merge was being finalized. Refresh and retry.", {cause: error.message}); }
-    const currentBranch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => ({stdout: ""}))).stdout.trim();
-    if (currentBranch === target) await git(root, ["reset", "--hard", mergeSha]);
-    return {merged: true, source, target, sourceSha, targetHead: mergeSha, mergeCommit: mergeSha, resolvedFiles: conflicts};
-  } finally {
-    await fs.rm(sandbox, {recursive: true, force: true}).catch(() => {});
-  }
+  await git(sandbox,["add","-A","--",...conflicts]);
+  const remaining=(await git(sandbox,["diff","--name-only","--diff-filter=U"])).stdout.split(/\r?\n/).filter(Boolean);
+  if(remaining.length)throw new AppError(409,"UNRESOLVED_CONFLICTS","Git still reports unresolved conflicts.",{conflicts:remaining});
+  return await publishPreparedMerge(id,{root,sandbox,source,target,sourceSha,targetSha,identity,expectedGeneration,operationType:options.operationType||"branch-merge-resolved",mode:"conflict-resolution",resolvedFiles:conflicts,options:{...options,author},switchWorktree:currentBranch.stdout.trim()===target});
+ }finally{await fs.rm(sandbox,{recursive:true,force:true}).catch(()=>{});}
 }
 
-export async function mergeBranches(id, source, target, expectedHead, expectedSourceSha) {
-  const root = repositoryPath(id);
-  const from = safeRef(source), into = safeRef(target);
-  if (from === into) throw new AppError(400, "SAME_BRANCH", "Choose different branches.");
-  if (expectedSourceSha !== undefined && (typeof expectedSourceSha !== "string" || !/^[a-f0-9]{40}$/i.test(expectedSourceSha))) {
-    throw new AppError(400, "EXPECTED_SOURCE_REQUIRED", "Provide the reviewed source branch SHA.");
-  }
-
-  const [targetResult, sourceResult] = await Promise.all([
-    git(root, ["rev-parse", "--verify", "refs/heads/" + into]),
-    git(root, ["rev-parse", "--verify", from + "^{commit}"])
-  ]);
-  const currentTarget = targetResult.stdout.trim();
-  const currentSource = sourceResult.stdout.trim();
-  if (expectedHead && currentTarget !== expectedHead) {
-    throw new AppError(409, "BRANCH_MOVED", "Target branch moved since preview; refresh before merging.");
-  }
-  if (expectedSourceSha && currentSource !== expectedSourceSha) {
-    throw new AppError(409, "BRANCH_MOVED", "Source branch moved after review; refresh the pull request and obtain approval for the latest commit.");
-  }
-
-  await git(root, ["checkout", "--quiet", into]);
-  try {
-    // Merge the immutable SHA we validated instead of resolving the mutable source ref again.
-    await git(root, ["merge", "--no-edit", "--no-ff", currentSource]);
-    const mergedHead = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
-    return {merged: true, source: from, target: into, sourceSha: currentSource, targetHead: mergedHead};
-  } catch (error) {
-    const conflicts = (await git(root, ["diff", "--name-only", "--diff-filter=U"]).catch(() => ({stdout: ""})))
-      .stdout.split(/\r?\n/).filter(Boolean);
-    await git(root, ["merge", "--abort"]).catch(() => {});
-    throw new AppError(409, "MERGE_CONFLICT", "Git could not merge these branches without conflicts.", {
-      conflictingFiles: conflicts,
-      message: error.message
-    });
-  }
+export async function mergeBranches(id,source,target,expectedHead,expectedSourceSha,options={}) {
+ const root=repositoryPath(id),from=safeRef(source),into=safeRef(target),sourceRef="refs/heads/"+from,targetRef="refs/heads/"+into;
+ if(from===into)throw new AppError(400,"SAME_BRANCH","Choose different branches.");
+ if(expectedHead!==undefined&&(typeof expectedHead!=="string"||!/^[a-f0-9]{40}$/i.test(expectedHead)))throw new AppError(400,"EXPECTED_HEAD_REQUIRED","Provide the pinned target branch SHA.");
+ if(expectedSourceSha!==undefined&&(typeof expectedSourceSha!=="string"||!/^[a-f0-9]{40}$/i.test(expectedSourceSha)))throw new AppError(400,"EXPECTED_SOURCE_REQUIRED","Provide the pinned source branch SHA.");
+ const [targetResult,sourceResult]=await Promise.all([git(root,["rev-parse","--verify",targetRef+"^{commit}"]),git(root,["rev-parse","--verify",sourceRef+"^{commit}"]).catch(()=>({stdout:""}))]);
+ const liveTarget=targetResult.stdout.trim(),liveSource=sourceResult.stdout.trim(),targetSha=(expectedHead||liveTarget).toLowerCase(),sourceSha=(expectedSourceSha||liveSource).toLowerCase();
+ if(!sourceSha)throw new AppError(409,"SOURCE_BRANCH_MISSING","The source branch no longer exists.");
+ const identity=mergeIdentity(id,{mode:"automatic",source:from,target:into,sourceSha,targetSha},options);
+ await gitStorageAdapter.getGeneration({repositoryId:String(id)});
+ const previous=await findPublishedMerge(root,targetRef,identity,targetSha,sourceSha);
+ if(previous){const currentHead=(await git(root,["rev-parse","--verify",targetRef+"^{commit}"])).stdout.trim();return {merged:true,source:from,target:into,sourceSha,targetHead:currentHead,mergeCommit:previous,operationId:identity.operationId,replayed:true,worktreeSynced:false};}
+ if(liveTarget!==targetSha||liveSource!==sourceSha)throw new AppError(409,"BRANCH_MOVED","A source or target branch moved since the merge snapshot was taken. Refresh and retry.");
+ if(await mergeIsAncestor(root,sourceSha,targetSha))return {merged:true,source:from,target:into,sourceSha,targetHead:targetSha,mergeCommit:targetSha,noOp:true,replayed:false};
+ const expectedGeneration=await gitStorageAdapter.getGeneration({repositoryId:String(id)});
+ await mergeStage(options,"beforeObjectCreation",{operationId:identity.operationId,source:from,target:into,sourceSha,targetSha});
+ const sandbox=await createMergeSandbox(root,targetSha);
+ try{
+  let mergeError=null;try{await git(sandbox,["merge","--no-commit","--no-ff",sourceSha]);}catch(error){mergeError=error;}
+  const conflicts=(await git(sandbox,["diff","--name-only","--diff-filter=U"])).stdout.split(/\r?\n/).filter(Boolean);
+  if(mergeError||conflicts.length)throw new AppError(409,"MERGE_CONFLICT","Git could not merge these branches without conflicts.",{conflictingFiles:conflicts,message:mergeError?.message||"Git reported unresolved merge conflicts."});
+  return await publishPreparedMerge(id,{root,sandbox,source:from,target:into,sourceSha,targetSha,identity,expectedGeneration,operationType:options.operationType||"branch-merge",mode:"automatic",options});
+ }finally{await fs.rm(sandbox,{recursive:true,force:true}).catch(()=>{});}
 }
+
 async function readTreeEntry(root,revision,file) {
   const output=(await git(root,["--literal-pathspecs","ls-tree","-z",revision,"--",file])).stdout;
   const records=output.split("\0").filter(Boolean);

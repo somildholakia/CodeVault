@@ -236,8 +236,8 @@ router.delete("/:id/branches",asyncHandler(async(req,res)=>{
  res.json({deleted:true,branch:result.name,deletedHead:result.deletedHead});
 }));
 router.post("/:id/merge-preview",asyncHandler(async(req,res)=>{const repo=await getRepo(req.params.id);assertRead(await roleFor(repo,req.user._id),repo);const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160)}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose source and target branches.");res.json(await previewMerge(repo._id,p.data.source,p.data.target));}));
-router.post("/:id/merge",asyncHandler(async(req,res)=>{requireDurableRepositoryStorage();const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose valid source and target branches.");const protection=await protectionForBranch(repo,p.data.target);if(protection?.requirePullRequest)throw new AppError(409,"PULL_REQUEST_REQUIRED","This target branch accepts merges only through an approved pull request.",{pattern:protection.pattern});
- const result=await withRepositoryLock(repo._id,()=>mergeBranches(repo._id,p.data.source,p.data.target,p.data.expectedHead));await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Merged "+p.data.source+" into "+p.data.target+".",p.data.source);res.json({merged:true,result});}));
+router.post("/:id/merge",asyncHandler(async(req,res)=>{requireDurableRepositoryStorage();const repo=await getRepo(req.params.id);assertManage(await roleFor(repo,req.user._id));const p=z.object({source:z.string().min(1).max(160),target:z.string().min(1).max(160),expectedHead:z.string().regex(/^[a-f0-9]{40}$/i).optional(),expectedSourceSha:z.string().regex(/^[a-f0-9]{40}$/i).optional(),operationId:z.string().regex(/^[A-Za-z0-9_-]{8,128}$/).optional()}).safeParse(req.body);if(!p.success)throw new AppError(400,"VALIDATION_ERROR","Choose valid source and target branches and optional pinned SHAs or operation ID.");const protection=await protectionForBranch(repo,p.data.target);if(protection?.requirePullRequest)throw new AppError(409,"PULL_REQUEST_REQUIRED","This target branch accepts merges only through an approved pull request.",{pattern:protection.pattern});
+ const result=await withRepositoryLock(repo._id,()=>mergeBranches(repo._id,p.data.source,p.data.target,p.data.expectedHead,p.data.expectedSourceSha,{operationId:p.data.operationId,author:req.user,operationType:"branch-merge"}));await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Merged "+p.data.source+" into "+p.data.target+".",result.mergeCommit||result.targetHead);res.json({merged:true,result});}));
 router.post("/:id/merge-resolve",asyncHandler(async(req,res)=>{
  requireDurableRepositoryStorage();
  const repo=await getRepo(req.params.id);
@@ -251,11 +251,12 @@ router.post("/:id/merge-resolve",asyncHandler(async(req,res)=>{
    path:z.string().trim().min(1).max(500),
    content:z.string().max(1048576).optional(),
    delete:z.boolean().optional()
-  }).strict()).max(50)
+  }).strict()).max(50),
+  operationId:z.string().regex(/^[A-Za-z0-9_-]{8,128}$/).optional()
  }).strict().safeParse(req.body);
  if(!p.success)throw new AppError(400,"VALIDATION_ERROR","The source, target, branch heads or conflict resolutions are invalid.",p.error.flatten());
  const protection=await protectionForBranch(repo,p.data.target);if(protection?.requirePullRequest)throw new AppError(409,"PULL_REQUEST_REQUIRED","This target branch accepts merges only through an approved pull request.",{pattern:protection.pattern});
- const result=await withRepositoryLock(repo._id,()=>resolveMergeConflicts(repo._id,p.data.source,p.data.target,p.data.expectedHead,p.data.expectedSourceSha,p.data.resolutions,req.user));
+ const result=await withRepositoryLock(repo._id,()=>resolveMergeConflicts(repo._id,p.data.source,p.data.target,p.data.expectedHead,p.data.expectedSourceSha,p.data.resolutions,req.user,{operationId:p.data.operationId,operationType:"branch-merge-resolved"}));
  await event(req.user._id,repo,"branch.merged","merge",p.data.source,"Resolved merge conflicts and merged "+p.data.source+" into "+p.data.target+".",result.mergeCommit);
  res.status(201).json({merged:true,result});
 }));

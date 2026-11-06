@@ -183,7 +183,7 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
    if(!targetBranch)throw new AppError(409,"TARGET_BRANCH_MISSING","The pull-request target branch no longer exists.");
 
    // Pin both refs in the same repository lock before closing review/comment writes.
-   await claimPullRequestMerge(pr._id,{
+   const mergeClaim=await claimPullRequestMerge(pr._id,{
     sourceSha:sourceBranch.sha,
     targetSha:targetBranch.sha,
     claimedBy:req.user._id
@@ -215,7 +215,9 @@ router.post("/:id/merge",asyncHandler(async(req,res)=>{
    // Once Git is invoked, preserve the claim on every uncertain failure. Recovery
    // will inspect refs before deciding whether it is safe to reopen the PR.
    gitMergeAttempted=true;
-   const gitResult=await mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,targetBranch.sha,sourceBranch.sha);
+   const gitResult=await mergeBranches(pr.repository._id,pr.sourceBranch,pr.targetBranch,targetBranch.sha,sourceBranch.sha,{
+    operationId:mergeClaim.mergeOperationId,operationType:"pull-request-merge",pullRequestId:pr._id.toString(),author:req.user
+   });
    gitMergeCompleted=true;
    const mergeCommit=gitResult.targetHead||"";
    await completePullRequestMerge(pr._id,{

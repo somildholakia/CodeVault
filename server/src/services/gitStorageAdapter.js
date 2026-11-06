@@ -245,8 +245,11 @@ export function createLocalGitStorageAdapter(options={}){
   if(!Number.isSafeInteger(expectedGeneration)||expectedGeneration<0)throw new AppError(400,"EXPECTED_GENERATION_REQUIRED","Provide the current repository generation.");
   const leaseFence=Number.isSafeInteger(input.fencingToken)?input.fencingToken:0;
   if(leaseFence<0)throw new AppError(400,"INVALID_FENCING_TOKEN","The fencing token must be a non-negative integer.");
-
-  const payload={repositoryId:id,expectedGeneration,changes,...(input.operationPayload||{})};
+  const expectedRefs=input.expectedRefs||[];
+  if(!Array.isArray(expectedRefs)||expectedRefs.length>20)throw new AppError(400,"INVALID_EXPECTED_REFS","Expected ref preconditions must be an array of at most 20 entries.");
+  const normalizedExpectedRefs=expectedRefs.map(item=>({ref:safeRef(item?.ref),expectedObjectId:safeSha(item?.expectedObjectId)}));
+  if(new Set(normalizedExpectedRefs.map(item=>item.ref)).size!==normalizedExpectedRefs.length||normalizedExpectedRefs.some(item=>changes.some(change=>change.ref===item.ref)))throw new AppError(400,"INVALID_EXPECTED_REFS","Expected ref preconditions must be unique and must not duplicate the ref being changed.");
+  const payload={repositoryId:id,expectedGeneration,changes,...(input.operationPayload||{}),expectedRefs:normalizedExpectedRefs};
   const payloadHash=createHash("sha256").update(JSON.stringify(payload)).digest("hex");
   const recordFile=operationPath(id,op);
   await recoverPendingUnlocked(id,root);
@@ -265,9 +268,13 @@ export function createLocalGitStorageAdapter(options={}){
    const current=await readRefUnlocked(root,change.ref);
    if(current!==change.expectedObjectId)throw new AppError(409,"STORAGE_REF_CONFLICT","A Git ref changed before the compare-and-swap could be applied.",{ref:change.ref,currentObjectId:current});
   }
+  for(const guard of normalizedExpectedRefs){
+   const current=await readRefUnlocked(root,guard.ref);
+   if(current!==guard.expectedObjectId)throw new AppError(409,"STORAGE_REF_CONFLICT","A guarded Git ref changed before the compare-and-swap could be applied.",{ref:guard.ref,currentObjectId:current});
+  }
 
   const prepared={
-   operationId:op,payloadHash,status:"prepared",changes,
+   operationId:op,payloadHash,status:"prepared",changes,expectedRefs:normalizedExpectedRefs,
    generationBefore:state.generation,generationAfter:state.generation+1,
    fencingToken:leaseFence,createdAt:new Date().toISOString()
   };
@@ -283,9 +290,14 @@ export function createLocalGitStorageAdapter(options={}){
      catch{throw new AppError(422,"GIT_OBJECT_MISSING","The proposed ref target is not present in the repository.");}
      if(!type)throw new AppError(422,"GIT_OBJECT_MISSING","The proposed ref target is not present in the repository.");
      if(change.ref.startsWith("refs/heads/")&&type!=="commit")throw new AppError(422,"BRANCH_TARGET_NOT_COMMIT","A branch must point to a commit object.");
+     if(change.ref.startsWith("refs/heads/")){
+      try{await runGit(root,["fsck","--connectivity-only","--no-reflogs",change.newObjectId]);}
+      catch{throw new AppError(422,"GIT_OBJECT_MISSING","The proposed branch commit is missing one or more required Git objects.");}
+     }
     }
    }
    const commands=["start"];
+   for(const guard of normalizedExpectedRefs)commands.push("verify "+guard.ref+" "+guard.expectedObjectId);
    for(const change of changes){
     if(change.expectedObjectId===null)commands.push("create "+change.ref+" "+change.newObjectId);
     else if(change.newObjectId===null)commands.push("delete "+change.ref+" "+change.expectedObjectId);
@@ -362,11 +374,33 @@ export function createLocalGitStorageAdapter(options={}){
    const target=safeSha(input.newObjectId,true);
    if(expected===target)throw new AppError(400,"NOOP_REF_UPDATE","The expected and new ref targets must differ.");
    if(expected===null&&target===null)throw new AppError(400,"INVALID_REF_UPDATE","A ref update must create, update or delete a ref.");
+   const expectedRefs=(input.expectedRefs||[]).map(item=>({ref:safeRef(item?.ref),expectedObjectId:safeSha(item?.expectedObjectId)}));
+   if(expectedRefs.length>20||new Set(expectedRefs.map(item=>item.ref)).size!==expectedRefs.length||expectedRefs.some(item=>item.ref===ref))throw new AppError(400,"INVALID_EXPECTED_REFS","Expected ref preconditions must be unique and must not duplicate the ref being changed.");
    return scoped(id,async lease=>{
     const changes=[{ref,expectedObjectId:expected,newObjectId:target}];
     return applyChangesUnlocked(id,repositoryPath(id),{
-     ...input,fencingToken:input.fencingToken??lease?.fence??0
+     ...input,expectedRefs,fencingToken:input.fencingToken??lease?.fence??0
     },changes,input.beforePublish,input.beforeRefPublication,input.afterRefPublication);
+   });
+  },
+  async importObjects({repositoryId:id,sourceRepositoryPath,sourceRef,expectedCommitSha}){
+   const sourceRoot=path.resolve(String(sourceRepositoryPath||""));
+   const ref=safeRef(sourceRef),expected=safeSha(expectedCommitSha);
+   if(!sourceRepositoryPath||sourceRoot===repositoryPath(id))throw new AppError(400,"INVALID_OBJECT_IMPORT_SOURCE","An isolated Git object source is required.");
+   return scoped(id,async()=>{
+    const root=repositoryPath(id);
+    let sourceStat;
+    try{sourceStat=await fs.stat(sourceRoot);}catch{throw new AppError(400,"INVALID_OBJECT_IMPORT_SOURCE","The isolated Git source repository is unavailable.");}
+    if(!sourceStat.isDirectory())throw new AppError(400,"INVALID_OBJECT_IMPORT_SOURCE","The Git object source must be a repository directory.");
+    const advertised=(await runGit(sourceRoot,["rev-parse","--verify",ref+"^{commit}"])).stdout.trim();
+    if(advertised!==expected)throw new AppError(409,"GIT_OBJECT_IMPORT_MISMATCH","The isolated source ref does not point to the expected merge commit.");
+    await runGit(root,["fetch","--quiet","--no-tags","--no-write-fetch-head",sourceRoot,ref]);
+    const imported=(await runGit(root,["rev-parse","--verify",expected+"^{commit}"])).stdout.trim();
+    const objectType=(await runGit(root,["cat-file","-t",imported])).stdout.trim();
+    if(imported!==expected||objectType!=="commit")throw new AppError(422,"GIT_OBJECT_MISSING","The merge commit was not imported into the primary object database.");
+    try{await runGit(root,["fsck","--connectivity-only","--no-reflogs",expected]);}
+    catch{throw new AppError(422,"GIT_OBJECT_MISSING","The imported merge commit is missing one or more required Git objects.");}
+    return {commitSha:imported,verified:true};
    });
   },
   async exportBundle({repositoryId:id,maxSizeMb}){

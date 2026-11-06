@@ -31,6 +31,7 @@ const schema=new mongoose.Schema({
  mergeSourceSha:{type:String,default:"",match:/^$|^[a-f0-9]{40}$/i},
  mergeTargetSha:{type:String,default:"",match:/^$|^[a-f0-9]{40}$/i},
  mergeClaimedBy:{type:mongoose.Schema.Types.ObjectId,ref:"User",default:null},
+ mergeOperationId:{type:String,default:"",match:/^$|^[A-Za-z0-9_-]{8,128}$/},
  reviews:{type:[reviewSchema],default:[]},
  reviewThreads:{type:[reviewThreadSchema],default:[]},
  mergeCommit:{type:String,default:""},

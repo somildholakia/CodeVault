@@ -1,3 +1,4 @@
+import {randomUUID} from "node:crypto";
 import PullRequest from "../models/PullRequest.js";
 import {AppError} from "../utils/errors.js";
 
@@ -17,6 +18,8 @@ export async function claimPullRequestMerge(id, pins, model = PullRequest, now =
   if (!pins || !COMMIT_SHA.test(pins.sourceSha || "") || !COMMIT_SHA.test(pins.targetSha || "")) {
     throw new AppError(400, "MERGE_SNAPSHOT_REQUIRED", "Both source and target commit SHAs are required to claim a pull-request merge.");
   }
+  const operationId=pins.operationId || "prmerge-"+randomUUID();
+  if(typeof operationId!=="string"||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId))throw new AppError(400,"INVALID_OPERATION_ID","The pull-request merge operation ID is invalid.");
   const claimed = await model.findOneAndUpdate(
     {_id: id, status: "open"},
     {$set: {
@@ -24,7 +27,8 @@ export async function claimPullRequestMerge(id, pins, model = PullRequest, now =
       mergeStartedAt: now,
       mergeSourceSha: pins.sourceSha,
       mergeTargetSha: pins.targetSha,
-      mergeClaimedBy: pins.claimedBy || null
+      mergeClaimedBy: pins.claimedBy || null,
+      mergeOperationId: operationId
     }},
     {new: true}
   );
@@ -43,7 +47,8 @@ export async function completePullRequestMerge(id, fields, model = PullRequest) 
         mergeStartedAt: "",
         mergeSourceSha: "",
         mergeTargetSha: "",
-        mergeClaimedBy: ""
+        mergeClaimedBy: "",
+        mergeOperationId: ""
       }
     },
     {new: true}
@@ -63,7 +68,8 @@ export async function releasePullRequestMerge(id, model = PullRequest) {
         mergeStartedAt: "",
         mergeSourceSha: "",
         mergeTargetSha: "",
-        mergeClaimedBy: ""
+        mergeClaimedBy: "",
+        mergeOperationId: ""
       }
     }
   );
@@ -105,7 +111,8 @@ export async function reconcilePullRequestMerge(
       sourceBranch: current.sourceBranch,
       targetBranch: current.targetBranch,
       sourceSha,
-      targetSha
+      targetSha,
+      operationId: current.mergeOperationId || null
     });
   } catch (error) {
     throw new AppError(409, "PULL_REQUEST_MERGE_AMBIGUOUS", "Git state could not be verified. The pull request remains in merging state.", {
@@ -136,7 +143,8 @@ export async function reconcilePullRequestMerge(
           mergeStartedAt: "",
           mergeSourceSha: "",
           mergeTargetSha: "",
-          mergeClaimedBy: ""
+          mergeClaimedBy: "",
+          mergeOperationId: ""
         }
       },
       {new: true}
@@ -161,7 +169,8 @@ export async function reconcilePullRequestMerge(
           mergeStartedAt: "",
           mergeSourceSha: "",
           mergeTargetSha: "",
-          mergeClaimedBy: ""
+          mergeClaimedBy: "",
+          mergeOperationId: ""
         }
       },
       {new: true}

@@ -496,8 +496,8 @@ export async function commitFile(id,branch,file,content,message,author={},option
     const indexFile=path.join(temporaryDirectory,"index");
     await fs.writeFile(contentFile,content,{encoding:"utf8",mode:0o600});
 
-    // Persist only a blob object; do not touch the repository worktree or its shared index.
-    const blobSha=(await git(root,["hash-object","-w","--no-filters","--",contentFile])).stdout.trim();
+    // Apply the path's configured clean filters while writing only a blob object; the shared index and worktree stay untouched.
+    const blobSha=(await git(root,["hash-object","-w","--path="+targetPath,"--",contentFile])).stdout.trim();
     if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(blobSha)) {
       throw new AppError(500,"GIT_BLOB_CREATION_FAILED","Git did not return a valid blob object ID.");
     }

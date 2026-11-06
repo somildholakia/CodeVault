@@ -10,7 +10,7 @@ Last verified: 2026-11-06 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Latest application-code checkpoint: `a4465a9c35759f4685b0b9b06c80aa6e45b1474b` (adapter-backed file commits, checked-out worktree refresh and Git clean-filter support). Latest branch HEAD: `2e8d4eae626d467b28319dd56e0a32ef91389096` (includes updated README and handoff). Re-fetch the branch head, PR metadata and CI before editing.
+- Latest verified application-code checkpoint: `9a451e5d25eac9ea674ad726d13cfe813760cb03` (adapter-backed single-parent reverts and crash-boundary recovery tests, on top of adapter-backed file commits). This handoff update is a documentation-only commit after that code checkpoint; always re-fetch the live branch ref, PR metadata and CI before editing.
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change — portable Git backup and local restore
@@ -32,6 +32,52 @@ Checkpoint `8279b56` — verified bundle downloads plus a safe one-command local
 
 This is a manual portable recovery path only. It does not schedule backups or store them off-site automatically; the downloaded bundle must be stored securely outside the Render service.
 
+
+## Latest completed change — adapter-backed single-parent commit reverts
+
+Implementation checkpoint: `9a451e5d25eac9ea674ad726d13cfe813760cb03` (the branch's current implementation commit before this documentation-only update).
+
+- The existing revert route contract is preserved: `branch`, `commitSha` and `expectedHead` remain required. A stable `operationId` is optional for clients that need retry idempotency.
+- The existing authentication, writer-role authorization, durable-storage gate and branch-protection `requirePullRequest` check remain in place. A protected branch still rejects direct reverts with `DIRECT_PUSH_BLOCKED`.
+- Revert preparation uses a disposable `git clone --shared` sandbox. Git computes the inverse using the sandbox's private index/worktree; the shared repository's index and worktree are not used to create the inverse.
+- The generated commit is single-parent, uses the pinned current branch SHA as its parent, includes a `This reverts commit <sha>` trailer and a payload-bound CodeVault operation identity, and is verified before/after importing into the primary object database.
+- Publication is through `gitStorageAdapter.compareAndSwapRef`, with expected branch SHA, repository generation, MongoDB lease fence and operation journal. Generation/ref conflicts become `BRANCH_MOVED`. No automatic force update or ambiguous ref overwrite exists.
+- Deterministic author/committer metadata makes the same operation ID and payload generate the same commit object after a failure before publication. The operation identity in the commit lets a retry return the original published commit after a lost response. Reusing an operation ID for another payload is rejected.
+- The adapter now has a testable post-ref-publication/pre-journal-finalization boundary. A simulated interruption leaves the operation journal prepared; the next generation read reconciles the published ref and finalizes the journal before the service returns the existing revert.
+- Existing semantics remain: root commits are not revertible by this action; merge commits are rejected because no explicit mainline selector exists; unrelated commits and stale branch heads are rejected; dirty worktrees are not overwritten. Mainline selection is not newly enabled.
+- The active worktree is refreshed only after successful ref publication. Any refresh issue is returned separately so a committed revert is not retried as a new mutation.
+
+### Regression coverage
+
+Five new revert tests cover:
+- Failure before object creation and after object persistence, followed by deterministic retry.
+- Failure after journal preparation and immediately before ref publication; the branch remains unchanged and the aborted operation fails closed.
+- Failure immediately after ref publication but before journal finalization; retry recovers the prepared journal and returns the same commit.
+- Interrupted-operation recovery, exactly-one-revert enforcement and Git object connectivity.
+- Stale branch protection, root/merge commit behavior and the unchanged lack of merge-mainline selection.
+
+### Verification
+
+On application-code commit `9a451e5d25eac9ea674ad726d13cfe813760cb03`:
+- Backend Git engine: **129 passed, 0 failed**.
+- Product website: **7 passed, 0 failed**.
+- Frontend production build: passed.
+- Backend JavaScript syntax validation: passed.
+- GitHub Actions push run [42219034748](https://github.com/somildholakia/CodeVault/actions/runs/42219034748): passed.
+- GitHub Actions pull-request run [42219043647](https://github.com/somildholakia/CodeVault/actions/runs/42219043647): passed.
+- Vercel status contexts `Vercel – codevault` and `Vercel – codevault-site`: both success. Both preview deployments for this commit were `READY`.
+- PR #1 remains open and unmerged. No commits were pushed to `main`.
+- The Render blueprint remains on the Free plan with `REPO_STORAGE_DURABLE=false`. No production setting, write gate or paid infrastructure was changed.
+- The GitHub branch-protection API returned 403 for this connection, so the server-side CodeVault role/branch-policy checks were verified in code but GitHub repository-level protection settings could not be independently inspected here.
+- This is not a production-readiness declaration. The local adapter is not a shared durable Git provider. Keep production Git writes disabled until a dedicated/shared storage authority and its provider-specific fencing, crash-recovery, backup and restore guarantees are verified.
+
+### Next ordered milestones
+
+1. Migrate conflict-free and conflict-resolved branch merge publication to the adapter while pinning both source and target SHAs and preserving PR approval/authorization gates.
+2. Migrate annotated-tag creation and deletion.
+3. Integrate adapter sidecar/journal cleanup into repository deletion.
+4. Expand shared adapter contract tests and real-provider concurrency/failure tests.
+5. Implement or select a dedicated durable Git storage authority, complete backup/restore drills and independent security review before considering production writes.
 
 ## Latest completed change — file commits through the Git storage adapter
 

@@ -10,7 +10,7 @@ Last verified: 2026-11-06 (Asia/Kolkata)
 - Pull request: https://github.com/somildholakia/CodeVault/pull/1
 - PR base: `main`
 - PR status: open, not merged
-- Latest application-code checkpoint: `a4465a9c35759f4685b0b9b06c80aa6e45b1474b` (adapter-backed file commits, checked-out worktree refresh and Git clean-filter support). Latest verified branch HEAD before this handoff update: `3ab82e2c86c05eef9baabccd83c64f1b08ba5e8e` (includes four new regression tests). Re-fetch the branch head before editing.
+- Latest application-code checkpoint: `a4465a9c35759f4685b0b9b06c80aa6e45b1474b` (adapter-backed file commits, checked-out worktree refresh and Git clean-filter support). Latest branch HEAD: `2e8d4eae626d467b28319dd56e0a32ef91389096` (includes updated README and handoff). Re-fetch the branch head, PR metadata and CI before editing.
 - Keep all further implementation on `feat/global-issue-tracker`. Do not merge PR #1 or push changes to `main` unless Somil explicitly asks.
 
 ## Latest completed change — portable Git backup and local restore
@@ -49,16 +49,16 @@ Application-code checkpoint: `a4465a9c35759f4685b0b9b06c80aa6e45b1474b`; verifie
 
 ## Latest verified CI
 
-Latest GitHub Actions run against feature-branch HEAD `3ab82e2c86c05eef9baabccd83c64f1b08ba5e8e` (application-code checkpoint `a4465a9c35759f4685b0b9b06c80aa6e45b1474b)):
+Latest GitHub Actions run against feature-branch HEAD `2e8d4eae626d467b28319dd56e0a32ef91389096`:
 
-- CodeVault CI run 42216703723: https://github.com/somildholakia/CodeVault/actions/runs/42216703723 — passed.
+- CodeVault CI run 42217059542: https://github.com/somildholakia/CodeVault/actions/runs/42217059542 — passed.
 - Backend Git engine: 124 passed, 0 failed.
 - Product website: 7 passed, 0 failed.
 - Frontend production build: passed.
 - Backend JavaScript syntax validation: passed.
-- Vercel – codevault and Vercel – codevault-site status contexts: both success for this checkpoint.
+- Vercel – codevault and Vercel – codevault-site status contexts: both success.
 
-The CI run includes the file-commit adapter migration and its new regression coverage. Earlier CI failures were used to correct worktree synchronization and a test assertion; this final run is fully green.
+This run validates the adapter-backed file-commit implementation and the current README/handoff documentation checkpoint. The application-code change is recorded at `a4465a9c35759f4685b0b9b06c80aa6e45b1474b`; subsequent commits update tests and project documentation.
 
 ## Latest completed change — local Git storage adapter increment
 
@@ -124,19 +124,18 @@ For full feature inventory and local setup details, see `README.md`.
 
 ## Next recommended engineering task
 
-Continue the adapter migration with **single-parent commit reverts**. Keep the current ref pinned, compute the inverse tree in an isolated sandbox/index, create the revert commit object, and publish it with expected-head / generation compare-and-swap. Preserve the existing behavior for root commits, merge commits, unrelated commits, stale heads and conflict responses. Add tests for interruption before object write, after object persistence, after journal preparation and after ref publication, including idempotent retry/recovery. Then migrate merge and annotated-tag writes to the same adapter boundary. Add adapter sidecar-state cleanup to repository deletion and keep expanding the shared contract tests.
+Continue the adapter migration with **single-parent commit reverts**. First inspect the current revert implementation, route contract, branch-protection checks, repository lease/fencing behavior and adapter journal semantics. Keep the target ref pinned; compute the inverse tree in an isolated temporary index/sandbox; create the revert commit object; verify its parent and tree; and publish it with expected-head / repository-generation compare-and-swap. Preserve existing behavior for root commits, merge commits (including mainline selection), unrelated commits, stale heads and conflict responses. Add deterministic failure-injection tests for interruption before object write, after object persistence, after journal preparation, immediately before ref publication and immediately after ref publication. Verify retry/idempotency and recovery at every boundary.
 
-Do not enable production Git writes while this is only a local adapter. Shared durable storage or a dedicated Git storage service, distributed fencing verified against that actual provider, full Git + MongoDB backup retention/restore drills, and independent security review remain rollout gates. Keep provider selection, paid infrastructure and deployment behind explicit approval.
+After revert migration, migrate merge and annotated-tag mutations to the adapter, add adapter sidecar-state cleanup to repository deletion, and expand contract tests. Keep API behavior backward compatible and keep all implementation on `feat/global-issue-tracker`.
 
-
-Continue migrating existing Git mutation paths to the adapter while preserving current API behavior. Start with file commits using a Git-object pipeline (`hash-object`, `mktree`, `commit-tree`) followed by expected-head CAS, and add crash-injection tests around object persistence, journal preparation and ref publication. Then migrate merge/revert/tag paths carefully. Add sidecar state cleanup to repository deletion and expand adapter contract tests. Do not expose the adapter as a public API or enable production writes yet. Keep remote service/provider selection and deployment behind explicit approval.
+Do not enable production Git writes while this is only a local adapter. Shared durable storage or a dedicated Git storage service, provider-specific distributed fencing and crash-recovery tests, full Git + MongoDB backup retention/restore drills, and independent security review remain rollout gates. Keep provider selection, paid infrastructure and deployment behind explicit approval.
 
 ## Working rules for the next chat
 
 1. Start by reading this file, the current `README.md` and `docs/git-storage-provider-contract.md`.
-2. Re-fetch the current branch ref, PR #1 metadata and latest Actions runs before editing.
-3. Inspect the actual current route, model, lease service, Git service, restore script and tests; do not rely solely on this summary.
-4. Make focused changes, add regression tests, run the full test/build/syntax checks and wait for GitHub Actions.
-5. Push commits to `feat/global-issue-tracker`, update PR #1 with new work and verification, and update this handoff at every checkpoint.
-6. Report the exact new commit SHA, CI results and PR status.
-7. Never merge PR #1 or change `main` without explicit permission. Never claim production readiness only because CI passes.
+2. Re-fetch the current branch ref, PR #1 metadata, branch protection and latest Actions/Vercel checks before editing. Never assume the HEAD recorded here is still current.
+3. Inspect the actual current route, model, lease service, Git service, adapter, restore script and tests; do not rely solely on this summary.
+4. Make focused changes, add deterministic regression and crash-recovery tests, run the full test/build/syntax checks and wait for GitHub Actions to complete.
+5. Push commits only to `feat/global-issue-tracker`; update PR #1 discussion/description with meaningful checkpoint details and verification, and update README/handoff where applicable.
+6. At each checkpoint record the exact application-code commit, latest branch HEAD, Actions run URL and counts, deployment-check state, changed files and remaining risks.
+7. Never merge PR #1, change `main`, enable production Git writes, select a paid provider, or modify production deployment/configuration without explicit permission. Passing CI alone does not mean production readiness.

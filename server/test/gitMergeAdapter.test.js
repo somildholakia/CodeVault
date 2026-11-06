@@ -64,7 +64,7 @@ test("journal-prepared and pre-publication failures abort an all-before state",a
   const journal=JSON.parse(await fs.readFile(path.join(process.env.REPO_STORAGE_PATH,".codevault-state",id,"operations",op+".json"),"utf8"));
   assert.equal(journal.status,"aborted");
   await assert.rejects(()=>service.mergeBranches(id,"feature/"+suffix,"main",before.main,source,{operationId:op,author}),e=>["STORAGE_OPERATION_FAILED","STORAGE_OPERATION_INTERRUPTED"].includes(e.code));
- });
+ }
 
 });
 

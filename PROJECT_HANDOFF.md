@@ -185,3 +185,30 @@ Do not enable production Git writes while this is only a local adapter. Shared d
 5. Push commits only to `feat/global-issue-tracker`; update PR #1 discussion/description with meaningful checkpoint details and verification, and update README/handoff where applicable.
 6. At each checkpoint record the exact application-code commit, latest branch HEAD, Actions run URL and counts, deployment-check state, changed files and remaining risks.
 7. Never merge PR #1, change `main`, enable production Git writes, select a paid provider, or modify production deployment/configuration without explicit permission. Passing CI alone does not mean production readiness.
+
+
+## Current engineering checkpoint — adapter-backed Git merge publication
+
+Branch: \`feat/global-issue-tracker\`
+
+Implementation commit: \`dcf0196c2274e8abca920b3cbed0b98f6e337ead\`
+
+Test commit: \`d574cfe3e9c42345fe7ba539b6adce5d99d6ff02\`
+
+- Ordinary branch merges and conflict-resolved merges prepare in a disposable shared-object clone. The shared repository index/worktree is not mutated during merge preparation.
+- Source and target commit SHAs are pinned before preparation. Generated merges retain a real two-parent commit with target first and source second; commit tree and operation trailers are verified.
+- Merge objects are imported through the storage adapter and checked for complete Git object connectivity before publication.
+- Adapter compare-and-swap accepts payload-bound source-ref preconditions. A Git \`update-ref --stdin\` \`verify\` command and the target update occur in the same atomic transaction.
+- Target expected SHA, source expected SHA, repository generation and MongoDB fencing token are enforced. Branch target publication occurs only through \`gitStorageAdapter.compareAndSwapRef\`.
+- Stable operation IDs are bound to the payload and included in commit trailers/journals. PR merge claims persist an operation ID alongside reviewed source and target SHAs. PR recovery reconciles pending adapter journals before Git ancestry checks.
+- Tests added for pre-object failure, post-object persistence, prepared-journal and pre-publication failures, post-publication interruption/recovery, same-ID retry, duplicate prevention, source/target movement, conflict resolution, missing Git objects, mixed/ambiguous journal state and concurrent CAS writers.
+- CI verification on the final docs-inclusive branch HEAD is pending. Do not treat prior workflow runs as verification for this checkpoint.
+- Production Git writes remain disabled. The local adapter is not a shared durable provider; no production deployment settings, paid infrastructure or main branch changes were made. PR #1 remains open and unmerged.
+
+Next ordered milestones:
+1. Annotated-tag creation/deletion through the adapter.
+2. Repository-deletion sidecar cleanup.
+3. Shared adapter contract tests.
+4. Provider-specific durability verification.
+
+Before continuing, fetch the live branch, PR and Actions/Vercel states again. Complete full backend tests, website tests, production build and backend JavaScript syntax validation; wait for both push and PR workflows on the final checkpoint SHA.

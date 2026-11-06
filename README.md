@@ -116,3 +116,14 @@ CodeVault can scan exact resolved versions from npm lockfiles and exact pinned P
 ## Continuing development
 
 For the current branch checkpoint, latest verified CI, next recommended task and continuation instructions, see [PROJECT_HANDOFF.md](./PROJECT_HANDOFF.md). Update this handoff at every meaningful checkpoint so work can resume in another chat.
+
+
+## Git merge publication through the storage adapter
+
+Ordinary branch merges, conflict-resolved merges and pull-request merges prepare changes in a disposable shared-object clone. Merge preparation does not check out a target branch or mutate the shared repository index/worktree. Both source and target commit SHAs are pinned before preparation. The generated commit is validated with the target as first parent and source as second parent, preserving a genuine two-parent merge commit even when a merge could otherwise fast-forward.
+
+The merge commit and its reachable Git objects are imported and connectivity-checked before publication. The target branch moves only through \`gitStorageAdapter.compareAndSwapRef\`; its single atomic ref transaction checks the expected target SHA and verifies the pinned source ref SHA. Repository generation, MongoDB lease fencing, stable operation IDs and payload-bound idempotency remain enforced. PR merge claims persist the same operation ID and reviewed-source snapshot for interrupted recovery.
+
+A prepared operation is reconciled as all-before or all-after. All-before operations are aborted; all-after operations are finalized on retry or PR recovery. Mixed or ambiguous ref states fail closed and require operator reconciliation. Retrying the same published operation returns its existing merge commit instead of creating a duplicate. Existing no-op, fast-forward, conflict, branch-protection and approval gates remain in force.
+
+The adapter remains a local filesystem implementation. These changes do not enable production Git writes, provide shared durable storage between instances, or establish production readiness.

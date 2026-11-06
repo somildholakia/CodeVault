@@ -435,15 +435,18 @@ test("file commits refresh a clean checked-out branch for existing worktree-base
   {addReadme:true,authorName:"Pipeline Test",authorEmail:"pipeline-test@codevault.local"}
  );
  const root=gitService.repositoryPath(repositoryId);
+ await fs.writeFile(path.join(root,".gitattributes"),"*.txt text eol=lf\n");
+ git(root,["add",".gitattributes"]);
+ git(root,["commit","-m","Configure normalized text files"]);
  const initial=git(root,["rev-parse","HEAD"]);
  const result=await gitService.commitFile(
-  repositoryId,"main","src/active-branch.js","export const active = true;\n",
-  "Commit on checked-out branch",
+  repositoryId,"main","src/active-branch.txt","line one\r\nline two\r\n",
+  "Commit normalized text on checked-out branch",
   {displayName:"Pipeline Test",email:"pipeline-test@codevault.local"},
   {expectedHead:initial}
  );
  assert.equal(result.worktreeSynced,true);
  assert.equal(git(root,["rev-parse","HEAD"]),result.sha);
- assert.equal(git(root,["show","src/active-branch.js"]),"export const active = true;");
+ assert.equal(git(root,["show","HEAD:src/active-branch.txt"]),"line one\nline two");
  assert.equal(git(root,["status","--porcelain","--untracked-files=all"]),"");
 });

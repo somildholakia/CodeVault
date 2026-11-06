@@ -464,6 +464,15 @@ export async function commitFile(id,branch,file,content,message,author={},option
     throw new AppError(409,"BRANCH_MOVED","The branch changed since the editor was opened. Refresh the file before committing.",{expectedHead:expectedHeadInput,actualHead:currentHead});
   }
 
+  // Legacy revert and conflict-resolution paths use the shared checkout. Keep it
+  // aligned when this is the checked-out branch, but never overwrite local changes.
+  const activeBranch=(await git(root,["symbolic-ref","--quiet","--short","HEAD"]).catch(()=>({stdout:""}))).stdout.trim();
+  const refreshActiveWorktree=activeBranch===targetBranch;
+  if (refreshActiveWorktree) {
+    const status=(await git(root,["status","--porcelain","--untracked-files=all"])).stdout.trim();
+    if (status) throw new AppError(409,"WORKTREE_NOT_CLEAN","The checked-out branch has local changes. Save or discard them before committing.");
+  }
+
   // Refuse edits through symlink, submodule or non-directory parent entries in the target commit.
   let parent="";
   for (const part of targetPath.split("/").slice(0,-1)) {
@@ -523,7 +532,21 @@ export async function commitFile(id,branch,file,content,message,author={},option
         operationId:randomUUID(),
         fencingToken:lease?.fence||0
       });
-      return {sha:commitSha,branch:targetBranch,path:targetPath,parentSha:currentHead,generation:published.generation};
+      let worktreeSyncWarning=null;
+      if (refreshActiveWorktree) {
+        try {
+          await git(root,["reset","--hard",commitSha]);
+        } catch {
+          // The branch ref is already committed. Report this separately so callers
+          // do not retry and accidentally create a duplicate commit.
+          worktreeSyncWarning="The commit was published, but the checked-out worktree needs a refresh before another worktree-based operation.";
+        }
+      }
+      return {
+        sha:commitSha,branch:targetBranch,path:targetPath,parentSha:currentHead,
+        generation:published.generation,worktreeSynced:refreshActiveWorktree&&!worktreeSyncWarning,
+        ...(worktreeSyncWarning?{worktreeSyncWarning}:{})
+      };
     } catch (error) {
       if (["STORAGE_REF_CONFLICT","STORAGE_GENERATION_CONFLICT"].includes(error?.code)) {
         throw new AppError(409,"BRANCH_MOVED","The branch or repository changed while the commit was being prepared. Refresh and retry.",{cause:error.message});
